@@ -29,18 +29,29 @@ NEOFORGE_VERSION: str = "21.1.220"
 DEFAULT_RAM: str = "4G"
 RAM_OPTIONS: list[str] = ["2G", "4G", "6G", "8G"]
 
-# Platform-specific game directory
+# Platform-specific storage directories
+def get_app_support_dir() -> Path:
+    """Return a stable per-user directory for launcher data."""
+    system = platform.system()
+    if system == "Windows":
+        base = Path.home() / "AppData" / "Roaming"
+        return base / "TZP Launcher"
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "TZP Launcher"
+    return Path.home() / ".tzp-launcher"
+
+
 def get_default_game_dir() -> Path:
     """Return the default game directory based on the current platform."""
     system = platform.system()
     if system == "Windows":
         base = Path.home() / "AppData" / "Roaming"
-    elif system == "Darwin":
-        base = Path.home()
-    else:
-        base = Path.home()
-    return base / ".tzp-minecraft"
+        return base / ".tzp-minecraft"
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "TZP Launcher" / "game"
+    return Path.home() / ".tzp-minecraft"
 
+APP_SUPPORT_DIR: Path = get_app_support_dir()
 DEFAULT_GAME_DIR: Path = get_default_game_dir()
 
 # ---------------------------------------------------------------------------

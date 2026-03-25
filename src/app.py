@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 
 from config import (
     APP_NAME,
+    APP_SUPPORT_DIR,
     APP_VERSION,
     DEFAULT_GAME_DIR,
     DEFAULT_RAM,
@@ -63,7 +64,7 @@ from updater import apply_update, fetch_manifest
 # Settings persistence
 # ---------------------------------------------------------------------------
 
-SETTINGS_FILE = DEFAULT_GAME_DIR / "launcher_settings.json"
+SETTINGS_FILE = APP_SUPPORT_DIR / "launcher_settings.json"
 
 
 def load_settings() -> dict[str, Any]:
