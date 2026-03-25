@@ -677,7 +677,7 @@ class HomePage(QWidget):
         news_inner.addWidget(news_tag)
         news_inner.addSpacing(8)
 
-        news_text = QLabel("v1.1.6 -- Java fix + live launcher log")
+        news_text = QLabel("v1.1.7 -- Java fix + live launcher log")
         news_text.setObjectName("newsText")
         news_inner.addWidget(news_text)
 

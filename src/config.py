@@ -37,7 +37,7 @@ CRASH_REPORT_URL: str = os.getenv(
 
 # App info
 APP_NAME: str = "TZP Launcher"
-APP_VERSION: str = "1.1.6"
+APP_VERSION: str = "1.1.7"
 
 # Minecraft / NeoForge versions
 MC_VERSION: str = "1.21.1"
