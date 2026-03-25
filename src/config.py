@@ -37,7 +37,7 @@ CRASH_REPORT_URL: str = os.getenv(
 
 # App info
 APP_NAME: str = "TZP Launcher"
-APP_VERSION: str = "1.1.5"
+APP_VERSION: str = "1.1.6"
 
 # Minecraft / NeoForge versions
 MC_VERSION: str = "1.21.1"
@@ -519,6 +519,32 @@ QPushButton:pressed {
 #saveButton:hover {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
         stop:0 #7B2FBE, stop:1 #9B4FDE);
+}
+
+#secondaryActionButton {
+    background-color: #14101F;
+    border: 1px solid #2A1F45;
+    border-radius: 10px;
+    color: #E8E4F0;
+    padding: 8px 18px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+#secondaryActionButton:hover {
+    border-color: #7B2FBE;
+    background-color: #1C1530;
+}
+
+#logOutput {
+    background-color: #0E0B18;
+    border: 1px solid #2A1F45;
+    border-radius: 12px;
+    padding: 14px;
+    color: #D8D3E6;
+    font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
+    font-size: 12px;
+    selection-background-color: #4A1D72;
 }
 
 /* ---- Scrollbar ---- */

@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QMessageBox,
@@ -265,7 +266,11 @@ class UpdateWorker(QThread):
         # Install NeoForge
         self.neoforge_status.emit("Verifying NeoForge install...")
         try:
-            install_neoforge(game_dir, callback=lambda msg: self.neoforge_status.emit(msg))
+            install_neoforge(
+                game_dir,
+                java_path=self.settings.get("java_path", "") or None,
+                callback=lambda msg: self.neoforge_status.emit(msg),
+            )
             self.finished.emit(True, summary)
         except Exception as exc:
             self.finished.emit(False, f"NeoForge install failed: {exc}")
@@ -482,11 +487,12 @@ class Sidebar(QFrame):
         nav_icons = {
             "home": "\u25C8",
             "settings": "\u2699",
+            "log": "\u2630",
             "about": "\u2139",
         }
 
         self.nav_buttons: dict[str, QPushButton] = {}
-        for key, label in [("home", "Home"), ("settings", "Settings"), ("about", "About")]:
+        for key, label in [("home", "Home"), ("settings", "Settings"), ("log", "Log"), ("about", "About")]:
             btn = QPushButton(f"  {nav_icons[key]}   {label}")
             btn.setObjectName("navButton")
             btn.setCursor(Qt.PointingHandCursor)
@@ -671,7 +677,7 @@ class HomePage(QWidget):
         news_inner.addWidget(news_tag)
         news_inner.addSpacing(8)
 
-        news_text = QLabel("v1.1.5 -- Safer pack sync flow")
+        news_text = QLabel("v1.1.6 -- Java fix + live launcher log")
         news_text.setObjectName("newsText")
         news_inner.addWidget(news_text)
 
@@ -768,6 +774,55 @@ class AboutPage(QWidget):
             inner_layout.addWidget(row)
 
         layout.addWidget(inner)
+
+
+# ---------------------------------------------------------------------------
+# Log page
+# ---------------------------------------------------------------------------
+
+
+class LogPage(QWidget):
+    """Read-only live event log for update, install, and launch debugging."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(36, 32, 36, 28)
+        layout.setSpacing(16)
+
+        title = QLabel("Launcher Log")
+        title.setObjectName("aboutTitle")
+        layout.addWidget(title)
+
+        hint = QLabel("Live launcher events appear here while you update, install, and launch.")
+        hint.setObjectName("aboutValue")
+        layout.addWidget(hint)
+
+        actions = QWidget()
+        actions_layout = QHBoxLayout(actions)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(10)
+        actions_layout.addStretch()
+
+        self.clear_btn = QPushButton("Clear")
+        self.clear_btn.setObjectName("secondaryActionButton")
+        actions_layout.addWidget(self.clear_btn)
+        layout.addWidget(actions)
+
+        self.log_output = QPlainTextEdit()
+        self.log_output.setObjectName("logOutput")
+        self.log_output.setReadOnly(True)
+        self.log_output.setLineWrapMode(QPlainTextEdit.NoWrap)
+        layout.addWidget(self.log_output, 1)
+
+    def append_line(self, line: str) -> None:
+        self.log_output.appendPlainText(line)
+        scrollbar = self.log_output.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def clear(self) -> None:
+        self.log_output.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -1107,6 +1162,8 @@ class MainWindow(QMainWindow):
         self._server_online = False
         self._pulse_on = True
         self._device_id = self.settings.get("device_id", "")
+        self._last_progress_message = ""
+        self._last_neoforge_message = ""
 
         self._build_ui()
 
@@ -1159,6 +1216,10 @@ class MainWindow(QMainWindow):
         self.home_page.play_clicked.connect(self._on_play)
         self.stack.addWidget(self.home_page)
 
+        self.log_page = LogPage()
+        self.log_page.clear_btn.clicked.connect(self.log_page.clear)
+        self.stack.addWidget(self.log_page)
+
         self.about_page = AboutPage()
         self.stack.addWidget(self.about_page)
 
@@ -1177,16 +1238,23 @@ class MainWindow(QMainWindow):
 
         if key == "home":
             self.stack.setCurrentWidget(self.home_page)
+        elif key == "log":
+            self.stack.setCurrentWidget(self.log_page)
         elif key == "about":
             self.stack.setCurrentWidget(self.about_page)
 
         self.sidebar.set_active_nav(key)
+
+    def _log(self, message: str) -> None:
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.log_page.append_line(f"[{timestamp}] {message}")
 
     # ------------------------------------------------------------------
     # Server status
     # ------------------------------------------------------------------
 
     def _poll_server_status(self):
+        self._log("Polling server status.")
         self._status_worker = StatusWorker(self)
         self._status_worker.status_updated.connect(self._set_server_status)
         self._status_worker.start()
@@ -1202,12 +1270,14 @@ class MainWindow(QMainWindow):
             if not self._pulse_timer.isActive():
                 self._pulse_on = True
                 self._pulse_timer.start()
+            self._log(f"Server online: {players}/{max_players} players.")
         else:
             self.sidebar.status_dot.setStyleSheet("color: #E74C3C; font-size: 12px;")
             self.sidebar.status_label.setText("Offline")
             self.sidebar.status_label.setStyleSheet("color: #E74C3C; font-size: 12px;")
             self.sidebar.player_label.setText("")
             self._pulse_timer.stop()
+            self._log("Server offline.")
 
         # Re-check in 30s
         self._status_timer.start(30_000)
@@ -1234,10 +1304,12 @@ class MainWindow(QMainWindow):
         self.home_page.progress_pct_label.setText("")
         self.home_page.progress_label.setText("Sync the latest pack when you're ready.")
         self.home_page.progress_label.setStyleSheet("color: #7A7490; font-size: 12px;")
+        self._log("Launcher ready. Waiting for explicit pack sync.")
 
     def _start_update(self):
         if self._update_running:
             return
+        self._log("Starting pack sync.")
         self._update_running = True
         self.home_page.play_btn.setEnabled(False)
         self.home_page.play_btn.setText("UPDATING...")
@@ -1249,6 +1321,7 @@ class MainWindow(QMainWindow):
         self._update_worker.start()
 
     def _check_launcher_update(self):
+        self._log("Checking launcher release metadata.")
         self._update_check_worker = UpdateCheckWorker(self)
         self._update_check_worker.update_available.connect(self._show_update_dialog)
         self._update_check_worker.start()
@@ -1256,6 +1329,7 @@ class MainWindow(QMainWindow):
     def _show_update_dialog(self, version: str, url: str, summary: str):
         if self.settings.get("last_update_prompt") == version:
             return
+        self._log(f"Launcher update available: v{version} -> {url}")
         dialog = UpdateDialog(version, url, summary, self)
         dialog.exec()
         self.settings["last_update_prompt"] = version
@@ -1266,14 +1340,21 @@ class MainWindow(QMainWindow):
         self.home_page.progress_label.setText(text)
         pct = int(frac * 100)
         self.home_page.progress_pct_label.setText(f"{pct}%" if pct > 0 else "")
+        if text != self._last_progress_message:
+            self._last_progress_message = text
+            self._log(f"Update: {text}")
 
     def _neoforge_status(self, msg: str):
         self.home_page.progress_label.setText(msg)
+        if msg != self._last_neoforge_message:
+            self._last_neoforge_message = msg
+            self._log(f"NeoForge: {msg}")
 
     def _update_finished(self, success: bool, message: str):
         self._update_running = False
 
         if success:
+            self._log(f"Pack sync finished successfully. {message}")
             self._pack_ready = True
             self.home_page.progress_bar.setValue(1000)
             self.home_page.progress_pct_label.setText("")
@@ -1284,6 +1365,7 @@ class MainWindow(QMainWindow):
             # Start glow animation
             self._glow_timer.start()
         else:
+            self._log(f"Pack sync failed. {message}")
             self._pack_ready = False
             self.home_page.progress_bar.setValue(0)
             self.home_page.progress_pct_label.setText("")
@@ -1325,11 +1407,15 @@ class MainWindow(QMainWindow):
     def _scan_and_send_crash_reports(self):
         game_dir = Path(self.settings.get("game_dir", str(DEFAULT_GAME_DIR)))
         session_token = self.settings.get("session_token", "") or None
+        self._log("Scanning for crash reports.")
         self._crash_worker = CrashReportWorker(game_dir, session_token, self._device_id, self)
         self._crash_worker.finished.connect(self._crash_report_finished)
         self._crash_worker.start()
 
     def _crash_report_finished(self, new_reports: int, sent_ok: bool):
+        self._log(
+            f"Crash report scan complete. New reports: {new_reports}. Upload successful: {sent_ok}."
+        )
         if new_reports > 0 and not sent_ok:
             enqueue_crash(
                 {
@@ -1362,6 +1448,7 @@ class MainWindow(QMainWindow):
 
         if not self._pack_ready:
             if not self._confirm_sync():
+                self._log("User cancelled pack sync.")
                 self.home_page.progress_label.setText("Sync cancelled.")
                 self.home_page.progress_label.setStyleSheet("color: #7A7490; font-size: 12px;")
                 return
@@ -1376,6 +1463,7 @@ class MainWindow(QMainWindow):
         java_path = self.settings.get("java_path", "") or None
 
         try:
+            self._log("Launching Minecraft.")
             self.home_page.play_btn.setEnabled(False)
             self.home_page.play_btn.setText("LAUNCHING...")
             self.home_page.progress_label.setText("Launching Minecraft...")
@@ -1391,6 +1479,7 @@ class MainWindow(QMainWindow):
             self._launch_worker.start()
 
         except Exception as exc:
+            self._log(f"Launch failed. {exc}")
             self.home_page.play_btn.setEnabled(True)
             self.home_page.play_btn.setText("PLAY")
             self.home_page.progress_label.setText(f"Launch failed: {exc}")
@@ -1405,6 +1494,7 @@ class MainWindow(QMainWindow):
             )
 
     def _game_stopped(self):
+        self._log("Minecraft process exited.")
         self._game_running = False
         self.home_page.play_btn.setEnabled(True)
         self.home_page.play_btn.setText("PLAY")
@@ -1420,8 +1510,24 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _open_settings(self):
+        self._log("Opening settings dialog.")
         dialog = SettingsDialog(self.settings, self)
         dialog.exec()
+
+    def closeEvent(self, event):
+        for name in (
+            "_status_worker",
+            "_update_worker",
+            "_update_check_worker",
+            "_crash_worker",
+            "_launch_worker",
+            "_claim_worker",
+        ):
+            worker = getattr(self, name, None)
+            if isinstance(worker, QThread) and worker.isRunning():
+                worker.requestInterruption()
+                worker.wait(2000)
+        super().closeEvent(event)
 
 
 class _LaunchWatcher(QThread):
