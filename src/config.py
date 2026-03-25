@@ -1,15 +1,21 @@
 """TZP Launcher configuration constants."""
 
+import os
 import platform
 from pathlib import Path
 
-# API endpoints — switch to local URLs for testing
-# Production:
-# MANIFEST_URL: str = "https://tzp-production.up.railway.app/api/manifest"
-# STATUS_URL: str = "https://tzp-production.up.railway.app/api/status"
-# Local testing:
-MANIFEST_URL: str = "http://127.0.0.1:8580/files/manifest.json"
-STATUS_URL: str = "https://tzp-production.up.railway.app/api/status"
+# API endpoints (override with env vars for local testing)
+# Examples:
+#   TZP_MANIFEST_URL=http://127.0.0.1:8580/files/manifest.json
+#   TZP_STATUS_URL=http://127.0.0.1:8580/status
+MANIFEST_URL: str = os.getenv(
+    "TZP_MANIFEST_URL",
+    "https://tzp-production.up.railway.app/api/manifest",
+)
+STATUS_URL: str = os.getenv(
+    "TZP_STATUS_URL",
+    "https://tzp-production.up.railway.app/api/status",
+)
 
 # App info
 APP_NAME: str = "TZP Launcher"

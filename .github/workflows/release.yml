@@ -1,0 +1,101 @@
+name: Release Launcher
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Build executable
+        run: |
+          python build.py
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v',''
+          if (-not $version) { $version = "1.1.0" }
+          iscc /DMyAppVersion=$version "installer\\windows\\TZP-Launcher.iss"
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: TZP-Launcher-Windows-Setup.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Build app bundle
+        run: |
+          python build.py
+      - name: Build DMG
+        run: |
+          APP_PATH="dist/TZP-Launcher.app"
+          DMG_NAME="TZP-Launcher-macOS.dmg"
+          STAGING_DIR="dist/dmg-staging"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Expected $APP_PATH not found. PyInstaller output missing."
+            exit 1
+          fi
+          rm -f "$DMG_NAME"
+          rm -rf "$STAGING_DIR"
+          mkdir -p "$STAGING_DIR"
+          cp -R "$APP_PATH" "$STAGING_DIR/"
+          hdiutil create -volname "The Zack Pack Launcher" -srcfolder "$STAGING_DIR" -ov -format UDZO "$DMG_NAME"
+          rm -rf "$STAGING_DIR"
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer
+          path: TZP-Launcher-macOS.dmg
+
+  build-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create source archive
+        run: |
+          git archive --format=zip --output TZP-Launcher-source.zip HEAD
+      - name: Upload source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-archive
+          path: TZP-Launcher-source.zip
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-macos, build-source]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/windows-installer/TZP-Launcher-Windows-Setup.exe
+            artifacts/macos-installer/TZP-Launcher-macOS.dmg
+            artifacts/source-archive/TZP-Launcher-source.zip
