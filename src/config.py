@@ -17,9 +17,27 @@ STATUS_URL: str = os.getenv(
     "https://tzp-production.up.railway.app/api/status",
 )
 
+# Launcher update + account endpoints
+LAUNCHER_UPDATE_URL: str = os.getenv(
+    "TZP_LAUNCHER_UPDATE_URL",
+    "https://tzp-production.up.railway.app/api/launcher/release",
+)
+ACCOUNT_API_BASE: str = os.getenv(
+    "TZP_ACCOUNT_API_BASE",
+    "https://tzp-production.up.railway.app/api",
+)
+CLAIM_CODE_URL: str = os.getenv(
+    "TZP_CLAIM_CODE_URL",
+    f"{ACCOUNT_API_BASE}/claim",
+)
+CRASH_REPORT_URL: str = os.getenv(
+    "TZP_CRASH_REPORT_URL",
+    f"{ACCOUNT_API_BASE}/crash",
+)
+
 # App info
 APP_NAME: str = "TZP Launcher"
-APP_VERSION: str = "1.1.0"
+APP_VERSION: str = "1.1.5"
 
 # Minecraft / NeoForge versions
 MC_VERSION: str = "1.21.1"

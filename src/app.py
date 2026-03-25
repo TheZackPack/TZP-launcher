@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import platform as runtime_platform
 import sys
+import traceback
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,8 +25,9 @@ from PySide6.QtCore import (
     QPropertyAnimation,
     QEasingCurve,
     Property,
+    QUrl,
 )
-from PySide6.QtGui import QColor, QFont, QIcon
+from PySide6.QtGui import QColor, QFont, QIcon, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -37,6 +42,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QProgressBar,
     QPushButton,
+    QMessageBox,
     QSizePolicy,
     QSpacerItem,
     QStackedWidget,
@@ -48,8 +54,11 @@ from config import (
     APP_NAME,
     APP_SUPPORT_DIR,
     APP_VERSION,
+    CLAIM_CODE_URL,
+    CRASH_REPORT_URL,
     DEFAULT_GAME_DIR,
     DEFAULT_RAM,
+    LAUNCHER_UPDATE_URL,
     MANIFEST_URL,
     MC_VERSION,
     RAM_OPTIONS,
@@ -73,6 +82,10 @@ def load_settings() -> dict[str, Any]:
         "ram": DEFAULT_RAM,
         "game_dir": str(DEFAULT_GAME_DIR),
         "java_path": "",
+        "device_id": "",
+        "session_token": "",
+        "account_name": "",
+        "last_update_prompt": "",
     }
     try:
         if SETTINGS_FILE.is_file():
@@ -81,6 +94,8 @@ def load_settings() -> dict[str, Any]:
             defaults.update(saved)
     except (json.JSONDecodeError, OSError):
         pass
+    if not defaults.get("device_id"):
+        defaults["device_id"] = uuid.uuid4().hex
     return defaults
 
 
@@ -89,6 +104,121 @@ def save_settings(settings: dict[str, Any]) -> None:
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Crash reporting + queue
+# ---------------------------------------------------------------------------
+
+CRASH_QUEUE_FILE = APP_SUPPORT_DIR / "crash_queue.json"
+CRASH_STATE_FILE = APP_SUPPORT_DIR / "crash_state.json"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _load_json(path: Path, default: Any) -> Any:
+    try:
+        if path.is_file():
+            with open(path, "r") as f:
+                return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        pass
+    return default
+
+
+def _save_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
+def load_crash_queue() -> list[dict[str, Any]]:
+    data = _load_json(CRASH_QUEUE_FILE, [])
+    return data if isinstance(data, list) else []
+
+
+def enqueue_crash(entry: dict[str, Any]) -> None:
+    queue = load_crash_queue()
+    queue.append(entry)
+    _save_json(CRASH_QUEUE_FILE, queue)
+
+
+def load_crash_state() -> dict[str, Any]:
+    data = _load_json(CRASH_STATE_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def save_crash_state(state: dict[str, Any]) -> None:
+    _save_json(CRASH_STATE_FILE, state)
+
+
+def _read_file_snippet(path: Path, max_chars: int = 20000) -> str:
+    try:
+        with open(path, "r", errors="ignore") as f:
+            return f.read(max_chars)
+    except OSError:
+        return ""
+
+
+def scan_minecraft_crash_reports(game_dir: Path) -> int:
+    crash_dir = game_dir / "crash-reports"
+    if not crash_dir.is_dir():
+        return 0
+
+    state = load_crash_state()
+    seen: dict[str, str] = state.get("seen", {}) if isinstance(state.get("seen"), dict) else {}
+    new_count = 0
+
+    for path in crash_dir.glob("*.txt"):
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+
+        key = f"{path.name}:{stat.st_size}:{int(stat.st_mtime)}"
+        if seen.get(path.name) == key:
+            continue
+
+        enqueue_crash(
+            {
+                "type": "minecraft_crash_report",
+                "timestamp": _now_iso(),
+                "path": str(path),
+                "filename": path.name,
+                "size": stat.st_size,
+                "mtime": int(stat.st_mtime),
+                "content": _read_file_snippet(path),
+            }
+        )
+        seen[path.name] = key
+        new_count += 1
+
+    save_crash_state({"seen": seen})
+    return new_count
+
+
+def flush_crash_queue(session_token: str | None, device_id: str) -> bool:
+    queue = load_crash_queue()
+    if not queue:
+        return True
+
+    payload = {
+        "device_id": device_id,
+        "session_token": session_token or "",
+        "launcher_version": APP_VERSION,
+        "reports": queue,
+    }
+
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(CRASH_REPORT_URL, json=payload)
+            resp.raise_for_status()
+        _save_json(CRASH_QUEUE_FILE, [])
+        return True
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +295,106 @@ class StatusWorker(QThread):
             self.status_updated.emit(online, players, max_players)
         except Exception:
             self.status_updated.emit(False, 0, 0)
+
+
+# ---------------------------------------------------------------------------
+# Launcher update check
+# ---------------------------------------------------------------------------
+
+
+def _parse_version(raw: str) -> tuple[int, int, int]:
+    cleaned = raw.strip().lstrip("v")
+    parts = cleaned.split(".")
+    nums: list[int] = []
+    for part in parts[:3]:
+        digits = "".join(ch for ch in part if ch.isdigit())
+        if digits:
+            nums.append(int(digits))
+    while len(nums) < 3:
+        nums.append(0)
+    return tuple(nums[:3])  # type: ignore[return-value]
+
+
+class UpdateCheckWorker(QThread):
+    update_available = Signal(str, str, str)  # (version, url, summary)
+
+    def run(self):
+        try:
+            with httpx.Client(timeout=8.0) as client:
+                resp = client.get(
+                    LAUNCHER_UPDATE_URL,
+                    headers={"Accept": "application/vnd.github+json"},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+            latest_tag = str(data.get("version") or data.get("tag_name") or "").strip()
+            latest_url = str(
+                data.get("windowsUrl")
+                if runtime_platform.system() == "Windows"
+                else data.get("universalUrl") or data.get("releaseUrl") or data.get("html_url")
+            ).strip()
+            summary = str(data.get("summary") or data.get("body") or "").strip()
+
+            if not latest_tag or not latest_url:
+                return
+
+            if _parse_version(latest_tag) > _parse_version(APP_VERSION):
+                self.update_available.emit(latest_tag.lstrip("v"), latest_url, summary)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Account claim code worker
+# ---------------------------------------------------------------------------
+
+
+class ClaimWorker(QThread):
+    finished = Signal(bool, str, dict)  # (success, message, payload)
+
+    def __init__(self, claim_code: str, device_id: str, parent=None):
+        super().__init__(parent)
+        self.claim_code = claim_code
+        self.device_id = device_id
+
+    def run(self):
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.post(
+                    CLAIM_CODE_URL,
+                    json={
+                        "claim_code": self.claim_code,
+                        "device_id": self.device_id,
+                        "launcher_version": APP_VERSION,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+            self.finished.emit(True, "Linked successfully.", data)
+        except Exception as exc:
+            self.finished.emit(False, f"Link failed: {exc}", {})
+
+
+# ---------------------------------------------------------------------------
+# Crash report worker
+# ---------------------------------------------------------------------------
+
+
+class CrashReportWorker(QThread):
+    finished = Signal(int, bool)  # (new_reports, sent_ok)
+
+    def __init__(self, game_dir: Path, session_token: str | None, device_id: str, parent=None):
+        super().__init__(parent)
+        self.game_dir = game_dir
+        self.session_token = session_token
+        self.device_id = device_id
+
+    def run(self):
+        new_reports = scan_minecraft_crash_reports(self.game_dir)
+        sent_ok = flush_crash_queue(self.session_token, self.device_id)
+        self.finished.emit(new_reports, sent_ok)
 
 
 # ---------------------------------------------------------------------------
@@ -441,7 +671,7 @@ class HomePage(QWidget):
         news_inner.addWidget(news_tag)
         news_inner.addSpacing(8)
 
-        news_text = QLabel("v1.1.0 -- MadGod v2 Event System")
+        news_text = QLabel("v1.1.5 -- Safer pack sync flow")
         news_text.setObjectName("newsText")
         news_inner.addWidget(news_text)
 
@@ -541,6 +771,64 @@ class AboutPage(QWidget):
 
 
 # ---------------------------------------------------------------------------
+# Update dialog
+# ---------------------------------------------------------------------------
+
+
+class UpdateDialog(QDialog):
+    def __init__(self, version: str, url: str, summary: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Launcher Update Available")
+        self.setFixedSize(520, 300)
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setSpacing(12)
+
+        title = QLabel("Update Available")
+        title.setObjectName("aboutTitle")
+        layout.addWidget(title)
+
+        msg = QLabel(
+            f"Version {version} is available. Download the latest launcher now?"
+        )
+        msg.setWordWrap(True)
+        msg.setObjectName("aboutValue")
+        layout.addWidget(msg)
+
+        if summary:
+            summary_label = QLabel(summary[:320])
+            summary_label.setWordWrap(True)
+            summary_label.setObjectName("cardHint")
+            layout.addWidget(summary_label)
+
+        layout.addStretch()
+
+        btn_row = QWidget()
+        btn_layout = QHBoxLayout(btn_row)
+        btn_layout.addStretch()
+
+        later_btn = QPushButton("Later")
+        later_btn.setObjectName("cancelButton")
+        later_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(later_btn)
+
+        btn_layout.addSpacing(10)
+
+        dl_btn = QPushButton("Download")
+        dl_btn.setObjectName("saveButton")
+        dl_btn.clicked.connect(lambda: self._open_url(url))
+        btn_layout.addWidget(dl_btn)
+
+        layout.addWidget(btn_row)
+
+    def _open_url(self, url: str) -> None:
+        QDesktopServices.openUrl(QUrl(url))
+        self.accept()
+
+
+# ---------------------------------------------------------------------------
 # Settings dialog
 # ---------------------------------------------------------------------------
 
@@ -563,6 +851,54 @@ class SettingsDialog(QDialog):
         layout.addWidget(title)
 
         layout.addSpacing(20)
+
+        # ACCOUNT section header
+        account_header = QLabel("ACCOUNT")
+        account_header.setObjectName("sectionLabel")
+        layout.addWidget(account_header)
+
+        layout.addSpacing(8)
+
+        account_card = QFrame()
+        account_card.setObjectName("settingsCard")
+        account_layout = QVBoxLayout(account_card)
+        account_layout.setContentsMargins(16, 14, 16, 14)
+        account_layout.setSpacing(6)
+
+        status_row = QHBoxLayout()
+        status_label = QLabel("Status")
+        status_label.setObjectName("cardLabel")
+        status_row.addWidget(status_label)
+        status_row.addStretch()
+
+        account_name = settings.get("account_name", "")
+        session_token = settings.get("session_token", "")
+        status_text = f"Linked ({account_name})" if session_token else "Not linked"
+        self.account_status = QLabel(status_text)
+        self.account_status.setObjectName("cardHint")
+        status_row.addWidget(self.account_status)
+        account_layout.addLayout(status_row)
+
+        claim_row = QHBoxLayout()
+        claim_row.setSpacing(8)
+        self.claim_input = QLineEdit()
+        self.claim_input.setPlaceholderText("Enter claim code")
+        claim_row.addWidget(self.claim_input)
+
+        self.claim_button = QPushButton("Link")
+        self.claim_button.setObjectName("browseButton")
+        self.claim_button.setCursor(Qt.PointingHandCursor)
+        self.claim_button.clicked.connect(self._claim_code)
+        claim_row.addWidget(self.claim_button)
+        account_layout.addLayout(claim_row)
+
+        self.claim_status = QLabel("")
+        self.claim_status.setObjectName("cardHint")
+        account_layout.addWidget(self.claim_status)
+
+        layout.addWidget(account_card)
+
+        layout.addSpacing(16)
 
         # GAME section header
         game_header = QLabel("GAME")
@@ -704,6 +1040,43 @@ class SettingsDialog(QDialog):
         if path:
             self.java_entry.setText(path)
 
+    def _claim_code(self):
+        code = self.claim_input.text().strip()
+        if not code:
+            self.claim_status.setText("Enter a claim code.")
+            return
+
+        self.claim_button.setEnabled(False)
+        self.claim_status.setText("Linking...")
+
+        device_id = self.settings.get("device_id", "")
+        if not device_id:
+            device_id = uuid.uuid4().hex
+            self.settings["device_id"] = device_id
+
+        self._claim_worker = ClaimWorker(code, device_id, self)
+        self._claim_worker.finished.connect(self._on_claim_finished)
+        self._claim_worker.start()
+
+    def _on_claim_finished(self, success: bool, message: str, payload: dict):
+        self.claim_button.setEnabled(True)
+        self.claim_status.setText(message)
+        if not success:
+            return
+
+        token = payload.get("session_token") or payload.get("token") or ""
+        account = payload.get("account") or {}
+        account_name = account.get("name") or account.get("username") or payload.get("username") or ""
+
+        if token:
+            self.settings["session_token"] = token
+        if account_name:
+            self.settings["account_name"] = account_name
+
+        status_text = f"Linked ({account_name})" if token else "Linked"
+        self.account_status.setText(status_text)
+        save_settings(self.settings)
+
     def _save(self):
         self.settings["ram"] = self.ram_combo.currentText()
         self.settings["game_dir"] = self.dir_entry.text()
@@ -727,10 +1100,13 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 550)
 
         self.settings = load_settings()
+        save_settings(self.settings)
         self._update_running = False
+        self._pack_ready = False
         self._game_running = False
         self._server_online = False
         self._pulse_on = True
+        self._device_id = self.settings.get("device_id", "")
 
         self._build_ui()
 
@@ -751,7 +1127,9 @@ class MainWindow(QMainWindow):
 
         # Kick off background tasks
         QTimer.singleShot(200, self._poll_server_status)
-        QTimer.singleShot(500, self._start_update)
+        QTimer.singleShot(800, self._check_launcher_update)
+        QTimer.singleShot(1200, self._scan_and_send_crash_reports)
+        self._set_sync_prompt()
 
     def _build_ui(self):
         central = QWidget()
@@ -848,7 +1226,18 @@ class MainWindow(QMainWindow):
     # Update flow
     # ------------------------------------------------------------------
 
+    def _set_sync_prompt(self):
+        self._pack_ready = False
+        self.home_page.play_btn.setEnabled(True)
+        self.home_page.play_btn.setText("SYNC PACK")
+        self.home_page.progress_bar.setValue(0)
+        self.home_page.progress_pct_label.setText("")
+        self.home_page.progress_label.setText("Sync the latest pack when you're ready.")
+        self.home_page.progress_label.setStyleSheet("color: #7A7490; font-size: 12px;")
+
     def _start_update(self):
+        if self._update_running:
+            return
         self._update_running = True
         self.home_page.play_btn.setEnabled(False)
         self.home_page.play_btn.setText("UPDATING...")
@@ -858,6 +1247,19 @@ class MainWindow(QMainWindow):
         self._update_worker.neoforge_status.connect(self._neoforge_status)
         self._update_worker.finished.connect(self._update_finished)
         self._update_worker.start()
+
+    def _check_launcher_update(self):
+        self._update_check_worker = UpdateCheckWorker(self)
+        self._update_check_worker.update_available.connect(self._show_update_dialog)
+        self._update_check_worker.start()
+
+    def _show_update_dialog(self, version: str, url: str, summary: str):
+        if self.settings.get("last_update_prompt") == version:
+            return
+        dialog = UpdateDialog(version, url, summary, self)
+        dialog.exec()
+        self.settings["last_update_prompt"] = version
+        save_settings(self.settings)
 
     def _update_progress(self, frac: float, text: str):
         self.home_page.progress_bar.setValue(int(frac * 1000))
@@ -872,6 +1274,7 @@ class MainWindow(QMainWindow):
         self._update_running = False
 
         if success:
+            self._pack_ready = True
             self.home_page.progress_bar.setValue(1000)
             self.home_page.progress_pct_label.setText("")
             self.home_page.progress_label.setText("Ready to play!")
@@ -881,12 +1284,21 @@ class MainWindow(QMainWindow):
             # Start glow animation
             self._glow_timer.start()
         else:
+            self._pack_ready = False
             self.home_page.progress_bar.setValue(0)
             self.home_page.progress_pct_label.setText("")
             self.home_page.progress_label.setText(message)
             self.home_page.progress_label.setStyleSheet("color: #E74C3C; font-size: 12px;")
             self.home_page.play_btn.setEnabled(True)
             self.home_page.play_btn.setText("RETRY")
+            enqueue_crash(
+                {
+                    "type": "launcher_update_failure",
+                    "timestamp": _now_iso(),
+                    "message": message,
+                    "launcher_version": APP_VERSION,
+                }
+            )
 
     # ------------------------------------------------------------------
     # Play button glow animation
@@ -907,15 +1319,52 @@ class MainWindow(QMainWindow):
         self.home_page._glow_effect.setOpacity(self._glow_val)
 
     # ------------------------------------------------------------------
+    # Crash reporting
+    # ------------------------------------------------------------------
+
+    def _scan_and_send_crash_reports(self):
+        game_dir = Path(self.settings.get("game_dir", str(DEFAULT_GAME_DIR)))
+        session_token = self.settings.get("session_token", "") or None
+        self._crash_worker = CrashReportWorker(game_dir, session_token, self._device_id, self)
+        self._crash_worker.finished.connect(self._crash_report_finished)
+        self._crash_worker.start()
+
+    def _crash_report_finished(self, new_reports: int, sent_ok: bool):
+        if new_reports > 0 and not sent_ok:
+            enqueue_crash(
+                {
+                    "type": "crash_report_upload_failed",
+                    "timestamp": _now_iso(),
+                    "message": "Crash report upload failed. Reports queued.",
+                    "launcher_version": APP_VERSION,
+                }
+            )
+
+    # ------------------------------------------------------------------
     # Play
     # ------------------------------------------------------------------
+
+    def _confirm_sync(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Sync TZP Pack")
+        dialog.setIcon(QMessageBox.Question)
+        dialog.setText("Download or update the latest TZP pack files now?")
+        dialog.setInformativeText(
+            "This will sync mods, configs, and KubeJS files into your separate TZP game directory."
+        )
+        dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.Cancel)
+        dialog.setDefaultButton(QMessageBox.Yes)
+        return dialog.exec() == QMessageBox.Yes
 
     def _on_play(self):
         if self._update_running:
             return
 
-        # Retry logic
-        if self.home_page.play_btn.text() == "RETRY":
+        if not self._pack_ready:
+            if not self._confirm_sync():
+                self.home_page.progress_label.setText("Sync cancelled.")
+                self.home_page.progress_label.setStyleSheet("color: #7A7490; font-size: 12px;")
+                return
             self._start_update()
             return
 
@@ -946,6 +1395,14 @@ class MainWindow(QMainWindow):
             self.home_page.play_btn.setText("PLAY")
             self.home_page.progress_label.setText(f"Launch failed: {exc}")
             self.home_page.progress_label.setStyleSheet("color: #E74C3C; font-size: 12px;")
+            enqueue_crash(
+                {
+                    "type": "launcher_launch_failure",
+                    "timestamp": _now_iso(),
+                    "message": str(exc),
+                    "launcher_version": APP_VERSION,
+                }
+            )
 
     def _game_stopped(self):
         self._game_running = False
@@ -956,6 +1413,7 @@ class MainWindow(QMainWindow):
         self.home_page.progress_pct_label.setText("")
         self.home_page.progress_bar.setValue(1000)
         self._glow_timer.start()
+        self._scan_and_send_crash_reports()
 
     # ------------------------------------------------------------------
     # Settings
@@ -985,7 +1443,22 @@ class _LaunchWatcher(QThread):
 # ---------------------------------------------------------------------------
 
 
+def _exception_hook(exc_type, exc, tb):
+    trace = "".join(traceback.format_exception(exc_type, exc, tb))
+    enqueue_crash(
+        {
+            "type": "launcher_exception",
+            "timestamp": _now_iso(),
+            "message": str(exc),
+            "traceback": trace,
+            "launcher_version": APP_VERSION,
+        }
+    )
+    sys.__excepthook__(exc_type, exc, tb)
+
+
 def main():
+    sys.excepthook = _exception_hook
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
 

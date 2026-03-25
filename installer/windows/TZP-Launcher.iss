@@ -1,6 +1,6 @@
 #define AppName "TZP Launcher"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.0"
+  #define MyAppVersion "1.1.5"
 #endif
 #define AppExeName "TZP-Launcher.exe"
 
