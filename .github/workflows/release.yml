@@ -35,7 +35,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: TZP-Launcher-Windows-Setup.exe
+          path: installer/windows/TZP-Launcher-Windows-Setup.exe
+          if-no-files-found: error
 
   build-macos:
     runs-on: macos-latest
