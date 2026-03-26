@@ -897,12 +897,12 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.settings = settings
         self.setWindowTitle("Settings")
-        self.setFixedSize(520, 500)
+        self.setFixedSize(540, 580)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(0)
+        layout.setSpacing(4)
 
         # Title
         title = QLabel("Settings")
@@ -957,7 +957,7 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(account_card)
 
-        layout.addSpacing(16)
+        layout.addSpacing(20)
 
         # GAME section header
         game_header = QLabel("GAME")
@@ -993,7 +993,7 @@ class SettingsDialog(QDialog):
         dir_card.setObjectName("settingsCard")
         dir_layout = QVBoxLayout(dir_card)
         dir_layout.setContentsMargins(16, 14, 16, 14)
-        dir_layout.setSpacing(4)
+        dir_layout.setSpacing(10)
 
         dir_label = QLabel("Game Directory")
         dir_label.setObjectName("cardLabel")
@@ -1015,14 +1015,7 @@ class SettingsDialog(QDialog):
         dir_layout.addLayout(dir_row)
         layout.addWidget(dir_card)
 
-        layout.addSpacing(8)
-
-        # Separator
-        sep = QFrame()
-        sep.setObjectName("settingsSep")
-        layout.addWidget(sep)
-
-        layout.addSpacing(12)
+        layout.addSpacing(20)
 
         # ADVANCED section header
         adv_header = QLabel("ADVANCED")
@@ -1036,7 +1029,7 @@ class SettingsDialog(QDialog):
         java_card.setObjectName("settingsCard")
         java_layout = QVBoxLayout(java_card)
         java_layout.setContentsMargins(16, 14, 16, 14)
-        java_layout.setSpacing(4)
+        java_layout.setSpacing(10)
 
         java_header_row = QHBoxLayout()
         java_label = QLabel("Java Path")
