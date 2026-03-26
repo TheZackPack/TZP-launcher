@@ -341,6 +341,8 @@ def open_minecraft_launcher() -> bool:
             pass
 
     elif system == "Windows":
+        import glob as _glob
+
         # 1. Check PATH
         mc_exe = shutil.which("MinecraftLauncher.exe")
         if mc_exe:
@@ -359,21 +361,24 @@ def open_minecraft_launcher() -> bool:
                 subprocess.Popen([exe])
                 return True
 
-        # 3. Windows Store / MSIX version — launch via shell protocol
-        try:
-            subprocess.Popen(
-                ["cmd", "/c", "start", "minecraft://"],
-                creationflags=0x08000000,  # CREATE_NO_WINDOW
-            )
-            return True
-        except (OSError, subprocess.SubprocessError):
-            pass
+        # 3. Windows Store MSIX version — scan the WindowsApps folder
+        #    The Java launcher has package name Microsoft.4297127D64EC6_*
+        msix_patterns = [
+            str(Path.home() / "AppData" / "Local" / "Microsoft" / "WindowsApps" / "Microsoft.4297127D64EC6_*" / "MinecraftLauncher.exe"),
+            r"C:\Program Files\WindowsApps\Microsoft.4297127D64EC6_*\MinecraftLauncher.exe",
+        ]
+        for pattern in msix_patterns:
+            matches = _glob.glob(pattern)
+            if matches:
+                subprocess.Popen([matches[-1]])  # latest version
+                return True
 
-        # 4. Fallback — try explorer shell launch
+        # 4. Try the Windows Store app launcher via explorer (Java edition)
         try:
-            subprocess.Popen(
-                ["explorer.exe", "shell:AppsFolder\\Microsoft.4297127D64EC6_8wekyb3d8bbwe!Minecraft"],
-            )
+            subprocess.Popen([
+                "explorer.exe",
+                "shell:AppsFolder\\Microsoft.4297127D64EC6_8wekyb3d8bbwe!Minecraft",
+            ])
             return True
         except (OSError, subprocess.SubprocessError):
             pass
