@@ -93,8 +93,8 @@ def compute_diff(
 
     for path, entry in remote_paths.items():
         local_hash = local_files.get(path)
-        # Manifest hash format is "sha256:hexdigest" — strip prefix for comparison
-        remote_hash = entry.get("hash", "")
+        # Support both "hash" (legacy) and "sha256" (current) manifest keys
+        remote_hash = entry.get("sha256", entry.get("hash", ""))
         if remote_hash.startswith("sha256:"):
             remote_hash = remote_hash[7:]
         if local_hash == remote_hash:
