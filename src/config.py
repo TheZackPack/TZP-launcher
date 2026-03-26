@@ -368,24 +368,31 @@ QDialog {
 }
 
 QDialog QWidget {
-    background-color: transparent;
+    background-color: #09090b;
+    color: #e5e5e5;
+}
+
+QDialog QLabel {
+    background-color: #09090b;
     color: #e5e5e5;
 }
 
 QDialog QFrame {
-    background-color: transparent;
+    background-color: #09090b;
 }
 
 #settingsTitle {
     color: #e5e5e5;
     font-size: 24px;
     font-weight: bold;
+    background-color: #09090b;
 }
 
 #sectionLabel {
     color: #525252;
     font-size: 10px;
     font-weight: bold;
+    background-color: #09090b;
 }
 
 /* ---- Cards (settings) ---- */
@@ -396,11 +403,12 @@ QDialog QFrame {
 }
 
 #settingsCard QWidget {
-    background-color: transparent;
+    background-color: #141414;
 }
 
 #settingsCard QLabel {
-    background-color: transparent;
+    background-color: #141414;
+    color: #e5e5e5;
 }
 
 #cardLabel {

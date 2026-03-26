@@ -341,19 +341,42 @@ def open_minecraft_launcher() -> bool:
             pass
 
     elif system == "Windows":
-        # Windows Store / MSI launcher
+        # 1. Check PATH
         mc_exe = shutil.which("MinecraftLauncher.exe")
         if mc_exe:
             subprocess.Popen([mc_exe])
             return True
+
+        # 2. Common install paths (MSI / standalone installer)
         candidates = [
             r"C:\Program Files (x86)\Minecraft Launcher\MinecraftLauncher.exe",
+            r"C:\Program Files\Minecraft Launcher\MinecraftLauncher.exe",
             str(Path.home() / "AppData" / "Local" / "Programs" / "Minecraft Launcher" / "MinecraftLauncher.exe"),
+            r"C:\XboxGames\Minecraft Launcher\Content\MinecraftLauncher.exe",
         ]
         for exe in candidates:
             if Path(exe).exists():
                 subprocess.Popen([exe])
                 return True
+
+        # 3. Windows Store / MSIX version — launch via shell protocol
+        try:
+            subprocess.Popen(
+                ["cmd", "/c", "start", "minecraft://"],
+                creationflags=0x08000000,  # CREATE_NO_WINDOW
+            )
+            return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+        # 4. Fallback — try explorer shell launch
+        try:
+            subprocess.Popen(
+                ["explorer.exe", "shell:AppsFolder\\Microsoft.4297127D64EC6_8wekyb3d8bbwe!Minecraft"],
+            )
+            return True
+        except (OSError, subprocess.SubprocessError):
+            pass
 
     else:  # Linux
         mc = shutil.which("minecraft-launcher")

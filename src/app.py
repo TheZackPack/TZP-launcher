@@ -899,6 +899,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Settings")
         self.setFixedSize(540, 580)
         self.setModal(True)
+        self.setAutoFillBackground(True)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -920,6 +921,7 @@ class SettingsDialog(QDialog):
 
         account_card = QFrame()
         account_card.setObjectName("settingsCard")
+        account_card.setAutoFillBackground(True)
         account_layout = QVBoxLayout(account_card)
         account_layout.setContentsMargins(16, 14, 16, 14)
         account_layout.setSpacing(6)
@@ -969,6 +971,7 @@ class SettingsDialog(QDialog):
         # RAM card
         ram_card = QFrame()
         ram_card.setObjectName("settingsCard")
+        ram_card.setAutoFillBackground(True)
         ram_layout = QHBoxLayout(ram_card)
         ram_layout.setContentsMargins(16, 14, 16, 14)
 
@@ -991,6 +994,7 @@ class SettingsDialog(QDialog):
         # Game directory card
         dir_card = QFrame()
         dir_card.setObjectName("settingsCard")
+        dir_card.setAutoFillBackground(True)
         dir_layout = QVBoxLayout(dir_card)
         dir_layout.setContentsMargins(16, 14, 16, 14)
         dir_layout.setSpacing(10)
@@ -1027,6 +1031,7 @@ class SettingsDialog(QDialog):
         # Java path card
         java_card = QFrame()
         java_card.setObjectName("settingsCard")
+        java_card.setAutoFillBackground(True)
         java_layout = QVBoxLayout(java_card)
         java_layout.setContentsMargins(16, 14, 16, 14)
         java_layout.setSpacing(10)
