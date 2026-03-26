@@ -187,11 +187,37 @@ def find_java(manual_path: str | None = None) -> str | None:
             pass
         candidates.append(str(Path.home() / ".sdkman/candidates/java/current/bin/java"))
     elif system == "Windows":
-        candidates += [
-            r"C:\Program Files\Eclipse Adoptium\jdk-21\bin\java.exe",
-            r"C:\Program Files\Java\jdk-21\bin\java.exe",
-            r"C:\Program Files\Microsoft\jdk-21\bin\java.exe",
+        # Scan common Windows Java install locations
+        program_dirs = [
+            Path(r"C:\Program Files"),
+            Path(r"C:\Program Files (x86)"),
+            Path.home() / "AppData" / "Local" / "Programs",
         ]
+        java_patterns = [
+            "Eclipse Adoptium/jdk-21*/bin/java.exe",
+            "Eclipse Adoptium/jre-21*/bin/java.exe",
+            "Java/jdk-21*/bin/java.exe",
+            "Java/jre-21*/bin/java.exe",
+            "Microsoft/jdk-21*/bin/java.exe",
+            "Zulu/zulu-21*/bin/java.exe",
+            "Amazon Corretto/jdk21*/bin/java.exe",
+            "BellSoft/LibericaJDK-21*/bin/java.exe",
+            "ojdkbuild/java-21*/bin/java.exe",
+        ]
+        import glob as _glob
+        for d in program_dirs:
+            for pattern in java_patterns:
+                for match in _glob.glob(str(d / pattern)):
+                    candidates.append(match)
+
+        # Also check the CurseForge bundled Java
+        cf_java = Path.home() / "curseforge" / "minecraft" / "Install" / "runtime" / "java-runtime-delta" / "windows-x64" / "java-runtime-delta" / "bin" / "java.exe"
+        if cf_java.exists():
+            candidates.append(str(cf_java))
+        # Minecraft launcher bundled Java
+        mc_java = Path.home() / "AppData" / "Local" / "Packages" / "Microsoft.4297127D64EC6_8wekyb3d8bbwe" / "LocalCache" / "Local" / "runtime" / "java-runtime-delta" / "windows-x64" / "java-runtime-delta" / "bin" / "java.exe"
+        if mc_java.exists():
+            candidates.append(str(mc_java))
     else:
         candidates += [
             "/usr/lib/jvm/java-21/bin/java",

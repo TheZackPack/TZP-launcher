@@ -364,6 +364,16 @@ QProgressBar::chunk {
 /* ---- Settings dialog ---- */
 QDialog {
     background-color: #09090b;
+    color: #e5e5e5;
+}
+
+QDialog QWidget {
+    background-color: transparent;
+    color: #e5e5e5;
+}
+
+QDialog QFrame {
+    background-color: transparent;
 }
 
 #settingsTitle {
@@ -383,6 +393,14 @@ QDialog {
     background-color: #141414;
     border: 1px solid #262626;
     border-radius: 10px;
+}
+
+#settingsCard QWidget {
+    background-color: transparent;
+}
+
+#settingsCard QLabel {
+    background-color: transparent;
 }
 
 #cardLabel {
