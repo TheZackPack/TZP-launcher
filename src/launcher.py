@@ -349,8 +349,11 @@ def open_minecraft_launcher() -> bool:
             subprocess.Popen([mc_exe])
             return True
 
-        # 2. Common install paths (MSI / standalone installer)
+        # 2. Common install paths (MSI / standalone / CurseForge)
         candidates = [
+            # CurseForge bundled launcher
+            str(Path.home() / "curseforge" / "minecraft" / "Install" / "MinecraftLauncher.exe"),
+            # Standard install paths
             r"C:\Program Files (x86)\Minecraft Launcher\MinecraftLauncher.exe",
             r"C:\Program Files\Minecraft Launcher\MinecraftLauncher.exe",
             str(Path.home() / "AppData" / "Local" / "Programs" / "Minecraft Launcher" / "MinecraftLauncher.exe"),
