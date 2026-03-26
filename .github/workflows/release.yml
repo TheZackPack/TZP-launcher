@@ -9,7 +9,25 @@ permissions:
   contents: write
 
 jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches APP_VERSION
+        run: |
+          TAG_VERSION=$(echo "$GITHUB_REF_NAME" | sed 's/^v//')
+          APP_VERSION=$(grep -oE 'APP_VERSION[^"]*"[^"]*"' src/config.py | grep -oE '"[^"]*"$' | tr -d '"')
+          echo "Tag version: $TAG_VERSION"
+          echo "APP_VERSION: $APP_VERSION"
+          if [ "$TAG_VERSION" != "$APP_VERSION" ]; then
+            echo "::error::Version mismatch! Tag ($TAG_VERSION) does not match APP_VERSION ($APP_VERSION) in src/config.py"
+            echo "This prevents releasing the wrong commit. Update APP_VERSION or re-tag the correct commit."
+            exit 1
+          fi
+          echo "Version check passed."
+
   build-windows:
+    needs: [version-check]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +57,7 @@ jobs:
           if-no-files-found: error
 
   build-universal:
+    needs: [version-check]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,18 +1,20 @@
-"""Minecraft launch logic — NeoForge install, Java detection, and game launch."""
+"""Minecraft setup logic — NeoForge install, Java detection, and profile management."""
 
 from __future__ import annotations
 
+import json
 import platform
 import shutil
 import subprocess
 import os
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
 import minecraft_launcher_lib
 
-from config import MC_VERSION, NEOFORGE_VERSION, DEFAULT_RAM
+from config import MC_VERSION, NEOFORGE_VERSION
 
 StatusCallback = Callable[[str], None]
 
@@ -209,71 +211,129 @@ def find_java(manual_path: str | None = None) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Launch
+# Minecraft launcher profile management
 # ---------------------------------------------------------------------------
 
-def build_launch_command(
-    game_dir: Path,
-    version_id: str,
-    ram: str = DEFAULT_RAM,
-    java_path: str | None = None,
-) -> list[str]:
-    """Build the full command-line list to launch Minecraft.
+PROFILE_ID = "tzp-modpack"
+PROFILE_NAME = "TZP — The Zack Pack"
 
-    Uses offline-mode auth with a placeholder username.
-    Microsoft auth is planned for Phase 2.
+
+def _mc_launcher_dir() -> Path:
+    """Return the official Minecraft launcher directory."""
+    system = platform.system()
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "minecraft"
+    if system == "Windows":
+        return Path.home() / "AppData" / "Roaming" / ".minecraft"
+    return Path.home() / ".minecraft"
+
+
+def _profiles_path() -> Path:
+    return _mc_launcher_dir() / "launcher_profiles.json"
+
+
+def ensure_profile(
+    game_dir: Path,
+    java_path: str | None = None,
+    ram: str = "4G",
+) -> bool:
+    """Create or update a TZP profile in the official Minecraft launcher.
+
+    Returns True if the profile was created/updated, False if launcher_profiles.json
+    was not found (Minecraft launcher not installed).
     """
-    java = find_java(java_path)
-    if java is None:
-        raise FileNotFoundError(
-            "Java 21 could not be found. Please install it or set the path in Settings."
-        )
+    profiles_file = _profiles_path()
+    if not profiles_file.exists():
+        return False
 
-    # Offline-mode login options (placeholder)
-    options: dict = {
-        "username": "TZP_Player",
-        "uuid": "00000000-0000-0000-0000-000000000000",
-        "token": "0",
-        "jvmArguments": [
-            f"-Xmx{ram}",
-            f"-Xms{ram}",
-            "-XX:+UseG1GC",
-            "-XX:+UnlockExperimentalVMOptions",
-            "-XX:G1NewSizePercent=20",
-            "-XX:G1ReservePercent=20",
-            "-XX:MaxGCPauseMillis=50",
-            "-XX:G1HeapRegionSize=32M",
-        ],
-        "executablePath": java,
-    }
+    with open(profiles_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
 
-    command = minecraft_launcher_lib.command.get_minecraft_command(
-        version_id,
-        str(game_dir),
-        options,
-    )
-    return command
-
-
-def launch_minecraft(
-    game_dir: Path,
-    ram: str = DEFAULT_RAM,
-    java_path: str | None = None,
-) -> subprocess.Popen:
-    """Launch Minecraft as a detached subprocess and return the Popen handle."""
+    profiles = data.setdefault("profiles", {})
     version_id = _neoforge_version_string()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
-    if not is_neoforge_installed(game_dir):
-        raise RuntimeError(
-            "NeoForge is not installed. Run the updater first."
-        )
+    java = find_java(java_path)
 
-    command = build_launch_command(game_dir, version_id, ram, java_path)
-
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        cwd=str(game_dir),
+    # Build JVM args with the user's RAM setting
+    jvm_args = (
+        f"-Xmx{ram} -Xms{ram} "
+        "-XX:+UseG1GC -XX:+UnlockExperimentalVMOptions "
+        "-XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 "
+        "-XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M"
     )
-    return process
+
+    profile = profiles.get(PROFILE_ID, {})
+    profile.update({
+        "name": PROFILE_NAME,
+        "type": "custom",
+        "gameDir": str(game_dir),
+        "lastVersionId": version_id,
+        "lastUsed": now,
+        "javaArgs": jvm_args,
+        "icon": "data:image/png;base64,",
+    })
+    if java:
+        profile["javaDir"] = java
+
+    profiles[PROFILE_ID] = profile
+    data["profiles"] = profiles
+
+    # Set as the selected profile so the MC launcher auto-selects it
+    data["selectedProfile"] = PROFILE_ID
+
+    with open(profiles_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+    return True
+
+
+def open_minecraft_launcher() -> bool:
+    """Open the official Minecraft launcher. Returns True if launched."""
+    system = platform.system()
+
+    if system == "Darwin":
+        candidates = [
+            "/Applications/Minecraft.app",
+            str(Path.home() / "Applications" / "Minecraft.app"),
+        ]
+        # Also check common CurseForge location
+        cf_app = Path.home() / "Documents" / "curseforge" / "minecraft" / "Install" / "Minecraft.app"
+        if cf_app.exists():
+            candidates.insert(0, str(cf_app))
+
+        for app in candidates:
+            if Path(app).exists():
+                subprocess.Popen(["open", app])
+                return True
+
+        # Try open by bundle ID
+        try:
+            subprocess.Popen(["open", "-b", "com.mojang.minecraftlauncher"])
+            return True
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    elif system == "Windows":
+        # Windows Store / MSI launcher
+        mc_exe = shutil.which("MinecraftLauncher.exe")
+        if mc_exe:
+            subprocess.Popen([mc_exe])
+            return True
+        candidates = [
+            r"C:\Program Files (x86)\Minecraft Launcher\MinecraftLauncher.exe",
+            str(Path.home() / "AppData" / "Local" / "Programs" / "Minecraft Launcher" / "MinecraftLauncher.exe"),
+        ]
+        for exe in candidates:
+            if Path(exe).exists():
+                subprocess.Popen([exe])
+                return True
+
+    else:  # Linux
+        mc = shutil.which("minecraft-launcher")
+        if mc:
+            subprocess.Popen([mc])
+            return True
+
+    return False
+

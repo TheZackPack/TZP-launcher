@@ -66,7 +66,7 @@ from config import (
     STATUS_URL,
     STYLESHEET,
 )
-from launcher import find_java, install_neoforge, launch_minecraft
+from launcher import find_java, install_neoforge, ensure_profile, open_minecraft_launcher
 from updater import apply_update, fetch_manifest
 
 
@@ -263,11 +263,15 @@ class UpdateWorker(QThread):
             f"{result['unchanged']} up to date."
         )
 
-        # Install NeoForge
+        # Install NeoForge into the official MC launcher directory so the
+        # launcher can find the version JARs and libraries.  The gameDir
+        # profile setting handles redirecting mods/configs/saves to game_dir.
+        from launcher import _mc_launcher_dir
+        mc_dir = _mc_launcher_dir()
         self.neoforge_status.emit("Verifying NeoForge install...")
         try:
             install_neoforge(
-                game_dir,
+                mc_dir,
                 java_path=self.settings.get("java_path", "") or None,
                 callback=lambda msg: self.neoforge_status.emit(msg),
             )
@@ -640,7 +644,7 @@ class HomePage(QWidget):
         play_row_layout = QHBoxLayout(play_row)
         play_row_layout.setAlignment(Qt.AlignCenter)
 
-        self.play_btn = QPushButton("PLAY")
+        self.play_btn = QPushButton("SYNC PACK")
         self.play_btn.setObjectName("playButton")
         self.play_btn.setCursor(Qt.PointingHandCursor)
         self.play_btn.setEnabled(False)
@@ -677,7 +681,7 @@ class HomePage(QWidget):
         news_inner.addWidget(news_tag)
         news_inner.addSpacing(8)
 
-        news_text = QLabel("v1.1.7 -- Java fix + live launcher log")
+        news_text = QLabel("v1.1.8 \u2014 Modpack manager + new look")
         news_text.setObjectName("newsText")
         news_inner.addWidget(news_text)
 
@@ -999,6 +1003,7 @@ class SettingsDialog(QDialog):
         dir_row.setSpacing(8)
 
         self.dir_entry = QLineEdit(settings.get("game_dir", str(DEFAULT_GAME_DIR)))
+        self.dir_entry.setCursorPosition(0)
         dir_row.addWidget(self.dir_entry)
 
         dir_browse = QPushButton("Browse")
@@ -1050,6 +1055,7 @@ class SettingsDialog(QDialog):
         java_detected = find_java(settings.get("java_path") or None)
         java_default = settings.get("java_path", "") or (java_detected or "")
         self.java_entry = QLineEdit(java_default)
+        self.java_entry.setCursorPosition(0)
         java_row.addWidget(self.java_entry)
 
         java_browse = QPushButton("Browse")
@@ -1158,7 +1164,6 @@ class MainWindow(QMainWindow):
         save_settings(self.settings)
         self._update_running = False
         self._pack_ready = False
-        self._game_running = False
         self._server_online = False
         self._pulse_on = True
         self._device_id = self.settings.get("device_id", "")
@@ -1303,7 +1308,7 @@ class MainWindow(QMainWindow):
         self.home_page.progress_bar.setValue(0)
         self.home_page.progress_pct_label.setText("")
         self.home_page.progress_label.setText("Sync the latest pack when you're ready.")
-        self.home_page.progress_label.setStyleSheet("color: #7A7490; font-size: 12px;")
+        self.home_page.progress_label.setStyleSheet("color: #737373; font-size: 12px;")
         self._log("Launcher ready. Waiting for explicit pack sync.")
 
     def _start_update(self):
@@ -1358,10 +1363,19 @@ class MainWindow(QMainWindow):
             self._pack_ready = True
             self.home_page.progress_bar.setValue(1000)
             self.home_page.progress_pct_label.setText("")
-            self.home_page.progress_label.setText("Ready to play!")
+            game_dir = Path(self.settings["game_dir"])
+            java_path = self.settings.get("java_path", "") or None
+            ram = self.settings.get("ram", DEFAULT_RAM)
+            profile_ok = ensure_profile(game_dir, java_path, ram)
+            if profile_ok:
+                self._log("TZP profile created in Minecraft launcher.")
+                self.home_page.progress_label.setText("Ready! Click to launch Minecraft.")
+            else:
+                self._log("Minecraft launcher not found — open game folder instead.")
+                self.home_page.progress_label.setText("Pack synced! Open Minecraft and select the TZP profile.")
             self.home_page.progress_label.setStyleSheet("color: #2ECC71; font-size: 12px;")
             self.home_page.play_btn.setEnabled(True)
-            self.home_page.play_btn.setText("PLAY")
+            self.home_page.play_btn.setText("LAUNCH MINECRAFT")
             # Start glow animation
             self._glow_timer.start()
         else:
@@ -1450,60 +1464,27 @@ class MainWindow(QMainWindow):
             if not self._confirm_sync():
                 self._log("User cancelled pack sync.")
                 self.home_page.progress_label.setText("Sync cancelled.")
-                self.home_page.progress_label.setStyleSheet("color: #7A7490; font-size: 12px;")
+                self.home_page.progress_label.setStyleSheet("color: #737373; font-size: 12px;")
                 return
             self._start_update()
             return
 
-        if self._game_running:
-            return
-
         game_dir = Path(self.settings["game_dir"])
-        ram = self.settings.get("ram", DEFAULT_RAM)
         java_path = self.settings.get("java_path", "") or None
 
-        try:
-            self._log("Launching Minecraft.")
-            self.home_page.play_btn.setEnabled(False)
-            self.home_page.play_btn.setText("LAUNCHING...")
-            self.home_page.progress_label.setText("Launching Minecraft...")
-            self.home_page.progress_label.setStyleSheet("color: #7A7490; font-size: 12px;")
-            self._glow_timer.stop()
+        # Ensure profile is up to date with current settings
+        ram = self.settings.get("ram", DEFAULT_RAM)
+        ensure_profile(game_dir, java_path, ram)
 
-            proc = launch_minecraft(game_dir, ram, java_path)
-            self._game_running = True
-
-            # Monitor process in a thread
-            self._launch_worker = _LaunchWatcher(proc, self)
-            self._launch_worker.game_exited.connect(self._game_stopped)
-            self._launch_worker.start()
-
-        except Exception as exc:
-            self._log(f"Launch failed. {exc}")
-            self.home_page.play_btn.setEnabled(True)
-            self.home_page.play_btn.setText("PLAY")
-            self.home_page.progress_label.setText(f"Launch failed: {exc}")
-            self.home_page.progress_label.setStyleSheet("color: #E74C3C; font-size: 12px;")
-            enqueue_crash(
-                {
-                    "type": "launcher_launch_failure",
-                    "timestamp": _now_iso(),
-                    "message": str(exc),
-                    "launcher_version": APP_VERSION,
-                }
-            )
-
-    def _game_stopped(self):
-        self._log("Minecraft process exited.")
-        self._game_running = False
-        self.home_page.play_btn.setEnabled(True)
-        self.home_page.play_btn.setText("PLAY")
-        self.home_page.progress_label.setText("Ready to play!")
-        self.home_page.progress_label.setStyleSheet("color: #2ECC71; font-size: 12px;")
-        self.home_page.progress_pct_label.setText("")
-        self.home_page.progress_bar.setValue(1000)
-        self._glow_timer.start()
-        self._scan_and_send_crash_reports()
+        # Try to launch the Minecraft launcher
+        if open_minecraft_launcher():
+            self._log("Launched Minecraft launcher — select the 'TZP' profile and play.")
+            self.home_page.progress_label.setText("Minecraft launcher opened — select TZP profile.")
+        else:
+            # Fallback: open the game folder
+            self._log("Minecraft launcher not found. Opening game folder.")
+            self.home_page.progress_label.setText("Open Minecraft manually and select the TZP profile.")
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(game_dir)))
 
     # ------------------------------------------------------------------
     # Settings
@@ -1520,7 +1501,6 @@ class MainWindow(QMainWindow):
             "_update_worker",
             "_update_check_worker",
             "_crash_worker",
-            "_launch_worker",
             "_claim_worker",
         ):
             worker = getattr(self, name, None)
@@ -1529,19 +1509,6 @@ class MainWindow(QMainWindow):
                 worker.wait(2000)
         super().closeEvent(event)
 
-
-class _LaunchWatcher(QThread):
-    """Watches the Minecraft subprocess and emits when it exits."""
-
-    game_exited = Signal()
-
-    def __init__(self, proc, parent=None):
-        super().__init__(parent)
-        self.proc = proc
-
-    def run(self):
-        self.proc.wait()
-        self.game_exited.emit()
 
 
 # ---------------------------------------------------------------------------

@@ -37,7 +37,7 @@ CRASH_REPORT_URL: str = os.getenv(
 
 # App info
 APP_NAME: str = "TZP Launcher"
-APP_VERSION: str = "1.1.7"
+APP_VERSION: str = "1.1.8"
 
 # Minecraft / NeoForge versions
 MC_VERSION: str = "1.21.1"
@@ -73,13 +73,13 @@ APP_SUPPORT_DIR: Path = get_app_support_dir()
 DEFAULT_GAME_DIR: Path = get_default_game_dir()
 
 # ---------------------------------------------------------------------------
-# QSS Stylesheet — Premium dark purple / void / ender theme
+# QSS Stylesheet — Clean dark theme — Cursor/Warp.dev inspired
 # ---------------------------------------------------------------------------
 
 STYLESHEET = """
 /* ---- Global ---- */
 QMainWindow {
-    background-color: #09090F;
+    background-color: #09090b;
 }
 
 QWidget {
@@ -88,41 +88,37 @@ QWidget {
 
 /* ---- Sidebar ---- */
 #sidebar {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-        stop:0 #1A0E30, stop:0.4 #140A26, stop:1 #0B0518);
-    border-right: 1px solid #2A1F45;
+    background-color: #111111;
+    border-right: 1px solid #1e1e1e;
 }
 
 #sidebarAccentTop {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #6A24A8, stop:0.5 #7B2FBE, stop:1 #6A24A8);
+    background-color: #3b82f6;
     min-height: 2px;
     max-height: 2px;
 }
 
 #sidebarAccentFade {
-    background-color: #4A1D72;
+    background-color: #1e1e1e;
     min-height: 1px;
     max-height: 1px;
 }
 
 #brandLabel {
-    color: #F5F0FF;
+    color: #e5e5e5;
     font-size: 48px;
     font-weight: bold;
     font-family: "Segoe UI", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
 }
 
 #brandGlow {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #7B2FBE, stop:0.5 #9B4FDE, stop:1 #7B2FBE);
-    min-height: 3px;
-    max-height: 3px;
-    border-radius: 1px;
+    background-color: #3b82f6;
+    min-height: 1px;
+    max-height: 1px;
 }
 
 #subtitleLabel {
-    color: #7A7490;
+    color: #525252;
     font-size: 11px;
     font-weight: bold;
     font-family: "Courier New", "SF Mono", monospace;
@@ -130,21 +126,21 @@ QWidget {
 }
 
 #versionPill {
-    background-color: #3A1858;
-    border: 1px solid #4A1D72;
+    background-color: #1a1a1a;
+    border: 1px solid #262626;
     border-radius: 10px;
     padding: 2px 10px;
 }
 
 #versionPillLabel {
-    color: #9B4FDE;
+    color: #3b82f6;
     font-size: 11px;
     font-weight: bold;
 }
 
 /* ---- Sidebar separator ---- */
 #sidebarSep {
-    background-color: #1E1535;
+    background-color: #1e1e1e;
     min-height: 1px;
     max-height: 1px;
 }
@@ -154,7 +150,7 @@ QWidget {
     background-color: transparent;
     border: none;
     border-radius: 8px;
-    color: #7A7490;
+    color: #737373;
     font-size: 13px;
     text-align: left;
     padding: 8px 12px;
@@ -162,15 +158,15 @@ QWidget {
 }
 
 #navButton:hover {
-    background-color: #14101F;
-    color: #E8E4F0;
+    background-color: #1a1a1a;
+    color: #e5e5e5;
 }
 
 #navButtonActive {
-    background-color: #14101F;
+    background-color: #1a1a1a;
     border: none;
     border-radius: 8px;
-    color: #E8E4F0;
+    color: #e5e5e5;
     font-size: 13px;
     text-align: left;
     padding: 8px 12px;
@@ -179,102 +175,101 @@ QWidget {
 
 /* ---- Server status card ---- */
 #statusCard {
-    background-color: #14101F;
-    border: 1px solid #2A1F45;
+    background-color: #141414;
+    border: 1px solid #262626;
     border-radius: 10px;
 }
 
 #statusHeader {
-    color: #504A65;
+    color: #525252;
     font-size: 9px;
     font-weight: bold;
 }
 
 #statusDot {
     font-size: 12px;
-    color: #504A65;
+    color: #525252;
 }
 
 #statusLabel {
-    color: #7A7490;
+    color: #737373;
     font-size: 12px;
 }
 
 #playerLabel {
-    color: #504A65;
+    color: #525252;
     font-size: 11px;
 }
 
 #creditLabel {
-    color: #504A65;
+    color: #525252;
     font-size: 10px;
 }
 
 /* ---- Main content ---- */
 #mainContainer {
-    background-color: #09090F;
+    background-color: #09090b;
 }
 
 /* ---- Home page ---- */
 #titleLabel {
-    color: #F5F0FF;
+    color: #e5e5e5;
     font-size: 36px;
     font-weight: bold;
     font-family: "Segoe UI", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
 }
 
 #poweredLabel {
-    color: #9B4FDE;
+    color: #3b82f6;
     font-size: 13px;
     font-family: "Courier New", "SF Mono", monospace;
 }
 
 /* ---- Info pills ---- */
 #pillAccent {
-    background-color: #3A1858;
-    border: 1px solid #2A1F45;
+    background-color: #1a1a1a;
+    border: 1px solid #262626;
     border-radius: 14px;
     padding: 5px 14px;
 }
 
 #pillAccentLabel {
-    color: #9B4FDE;
+    color: #3b82f6;
     font-size: 12px;
     font-weight: bold;
 }
 
 #pillDefault {
-    background-color: #14101F;
-    border: 1px solid #2A1F45;
+    background-color: #141414;
+    border: 1px solid #262626;
     border-radius: 14px;
     padding: 5px 14px;
 }
 
 #pillDefaultLabel {
-    color: #7A7490;
+    color: #737373;
     font-size: 12px;
     font-weight: bold;
 }
 
 #pillNether {
-    background-color: #3A1858;
-    border: 1px solid #2A1F45;
+    background-color: #1a1a1a;
+    border: 1px solid #262626;
     border-radius: 14px;
     padding: 5px 14px;
 }
 
 #pillNetherLabel {
-    color: #C44B1A;
+    color: #737373;
     font-size: 12px;
     font-weight: bold;
 }
 
 /* ---- Play button ---- */
 #playButton {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #6A24A8, stop:1 #7B2FBE);
+    background-color: #2563eb;
     color: white;
-    border: 2px solid #6A24A8;
+    border: 2px solid #2563eb;
     border-radius: 14px;
     font-size: 22px;
     font-weight: bold;
@@ -284,61 +279,59 @@ QWidget {
 }
 
 #playButton:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #7B2FBE, stop:1 #9B4FDE);
-    border: 2px solid #7B2FBE;
+    background-color: #3b82f6;
+    border: 2px solid #3b82f6;
 }
 
 #playButton:pressed {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #5A1A98, stop:1 #6A24A8);
+    background-color: #1d4ed8;
 }
 
 #playButton:disabled {
-    background-color: #3A1858;
-    color: #504A65;
-    border: 2px solid #2A1F45;
+    background-color: #1a1a1a;
+    color: #525252;
+    border: 2px solid #262626;
 }
 
 /* ---- News card ---- */
 #newsCard {
-    background-color: #14101F;
-    border: 1px solid #2A1F45;
+    background-color: #141414;
+    border: 1px solid #262626;
     border-radius: 12px;
     padding: 8px 14px;
 }
 
 #newsDot {
-    color: #C44B1A;
+    color: #3b82f6;
     font-size: 8px;
 }
 
 #newsTag {
-    color: #504A65;
+    color: #525252;
     font-size: 9px;
     font-weight: bold;
 }
 
 #newsText {
-    color: #7A7490;
+    color: #737373;
     font-size: 12px;
 }
 
 /* ---- Progress area ---- */
 #progressLabel {
-    color: #7A7490;
+    color: #737373;
     font-size: 12px;
 }
 
 #progressPctLabel {
-    color: #9B4FDE;
+    color: #3b82f6;
     font-size: 12px;
     font-weight: bold;
 }
 
 QProgressBar {
-    background-color: #1A1428;
-    border: 1px solid #2A1F45;
+    background-color: #1a1a1a;
+    border: 1px solid #262626;
     border-radius: 4px;
     max-height: 8px;
     min-height: 8px;
@@ -346,90 +339,98 @@ QProgressBar {
 }
 
 QProgressBar::chunk {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #6A24A8, stop:1 #9B4FDE);
+    background-color: #3b82f6;
     border-radius: 3px;
 }
 
 /* ---- About page ---- */
 #aboutTitle {
-    color: #F5F0FF;
+    color: #e5e5e5;
     font-size: 28px;
     font-weight: bold;
 }
 
 #aboutKey {
-    color: #7A7490;
+    color: #737373;
     font-size: 13px;
     font-weight: bold;
 }
 
 #aboutValue {
-    color: #E8E4F0;
+    color: #e5e5e5;
     font-size: 13px;
 }
 
 /* ---- Settings dialog ---- */
 QDialog {
-    background-color: #09090F;
+    background-color: #09090b;
 }
 
 #settingsTitle {
-    color: #F5F0FF;
+    color: #e5e5e5;
     font-size: 24px;
     font-weight: bold;
 }
 
 #sectionLabel {
-    color: #504A65;
+    color: #525252;
     font-size: 10px;
     font-weight: bold;
 }
 
 /* ---- Cards (settings) ---- */
 #settingsCard {
-    background-color: #14101F;
-    border: 1px solid #2A1F45;
+    background-color: #141414;
+    border: 1px solid #262626;
     border-radius: 10px;
 }
 
 #cardLabel {
-    color: #E8E4F0;
+    color: #e5e5e5;
     font-size: 13px;
 }
 
 #cardHint {
-    color: #504A65;
+    color: #525252;
     font-size: 11px;
 }
 
 /* ---- Inputs ---- */
 QLineEdit {
-    background-color: #0E0B18;
-    border: 1px solid #2A1F45;
+    background-color: #0f0f0f;
+    border: 1px solid #262626;
     border-radius: 6px;
     padding: 8px 12px;
-    color: #E8E4F0;
+    color: #e5e5e5;
     font-size: 13px;
-    selection-background-color: #7B2FBE;
+    selection-background-color: #2563eb;
+    selection-color: #ffffff;
 }
 
 QLineEdit:focus {
-    border-color: #7B2FBE;
+    border-color: #3b82f6;
+}
+
+QLineEdit:read-only {
+    color: #a3a3a3;
+}
+
+QDialog QLineEdit {
+    color: #e5e5e5;
 }
 
 QComboBox {
-    background-color: #0E0B18;
-    border: 1px solid #2A1F45;
+    background-color: #0f0f0f;
+    border: 1px solid #262626;
     border-radius: 6px;
     padding: 8px 12px;
-    color: #E8E4F0;
+    color: #e5e5e5;
     font-size: 13px;
     min-width: 90px;
 }
 
 QComboBox:focus {
-    border-color: #7B2FBE;
+    border-color: #3b82f6;
 }
 
 QComboBox::drop-down {
@@ -441,73 +442,72 @@ QComboBox::down-arrow {
     image: none;
     border-left: 4px solid transparent;
     border-right: 4px solid transparent;
-    border-top: 6px solid #7A7490;
+    border-top: 6px solid #737373;
     margin-right: 8px;
 }
 
 QComboBox QAbstractItemView {
-    background-color: #14101F;
-    border: 1px solid #2A1F45;
-    color: #E8E4F0;
-    selection-background-color: #3A1858;
-    selection-color: #E8E4F0;
+    background-color: #141414;
+    border: 1px solid #262626;
+    color: #e5e5e5;
+    selection-background-color: #1a1a1a;
+    selection-color: #e5e5e5;
     outline: none;
 }
 
 /* ---- Buttons (generic) ---- */
 QPushButton {
-    background-color: #14101F;
-    border: 1px solid #2A1F45;
+    background-color: #141414;
+    border: 1px solid #262626;
     border-radius: 6px;
-    color: #E8E4F0;
+    color: #e5e5e5;
     padding: 8px 16px;
     font-size: 13px;
 }
 
 QPushButton:hover {
-    border-color: #7B2FBE;
-    background-color: #1C1530;
+    border-color: #3b82f6;
+    background-color: #1a1a1a;
 }
 
 QPushButton:pressed {
-    background-color: #14101F;
+    background-color: #141414;
 }
 
 /* ---- Specific buttons ---- */
 #browseButton {
-    background-color: #4A1D72;
+    background-color: #1e1e1e;
     border: none;
     border-radius: 8px;
-    color: #E8E4F0;
+    color: #e5e5e5;
     padding: 8px 16px;
     font-size: 12px;
     min-width: 70px;
 }
 
 #browseButton:hover {
-    background-color: #7B2FBE;
+    background-color: #3b82f6;
 }
 
 #cancelButton {
     background-color: transparent;
-    border: 1px solid #3D2D60;
+    border: 1px solid #262626;
     border-radius: 10px;
-    color: #7A7490;
+    color: #737373;
     padding: 8px 24px;
     font-size: 13px;
     min-width: 90px;
 }
 
 #cancelButton:hover {
-    border-color: #7B2FBE;
-    background-color: #14101F;
-    color: #E8E4F0;
+    border-color: #3b82f6;
+    background-color: #141414;
+    color: #e5e5e5;
 }
 
 #saveButton {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #6A24A8, stop:1 #7B2FBE);
-    border: 1px solid #6A24A8;
+    background-color: #2563eb;
+    border: 1px solid #2563eb;
     border-radius: 10px;
     color: white;
     padding: 8px 24px;
@@ -517,45 +517,44 @@ QPushButton:pressed {
 }
 
 #saveButton:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #7B2FBE, stop:1 #9B4FDE);
+    background-color: #3b82f6;
 }
 
 #secondaryActionButton {
-    background-color: #14101F;
-    border: 1px solid #2A1F45;
+    background-color: #141414;
+    border: 1px solid #262626;
     border-radius: 10px;
-    color: #E8E4F0;
+    color: #e5e5e5;
     padding: 8px 18px;
     font-size: 12px;
     font-weight: bold;
 }
 
 #secondaryActionButton:hover {
-    border-color: #7B2FBE;
-    background-color: #1C1530;
+    border-color: #3b82f6;
+    background-color: #1a1a1a;
 }
 
 #logOutput {
-    background-color: #0E0B18;
-    border: 1px solid #2A1F45;
+    background-color: #0f0f0f;
+    border: 1px solid #262626;
     border-radius: 12px;
     padding: 14px;
-    color: #D8D3E6;
+    color: #d4d4d4;
     font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
     font-size: 12px;
-    selection-background-color: #4A1D72;
+    selection-background-color: #2563eb;
 }
 
 /* ---- Scrollbar ---- */
 QScrollBar:vertical {
-    background: #09090F;
+    background: #09090b;
     width: 8px;
     border: none;
 }
 
 QScrollBar::handle:vertical {
-    background: #7B2FBE;
+    background: #404040;
     border-radius: 4px;
     min-height: 30px;
 }
@@ -570,14 +569,14 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 
 /* ---- Accent line between sidebar and main ---- */
 #accentBorder {
-    background-color: #2A1F45;
+    background-color: #1e1e1e;
     min-width: 1px;
     max-width: 1px;
 }
 
 /* ---- Separator in settings ---- */
 #settingsSep {
-    background-color: #1E1535;
+    background-color: #1e1e1e;
     min-height: 1px;
     max-height: 1px;
 }
