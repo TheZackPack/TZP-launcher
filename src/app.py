@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -47,6 +48,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpacerItem,
     QStackedWidget,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
@@ -59,15 +61,18 @@ from config import (
     CRASH_REPORT_URL,
     DEFAULT_GAME_DIR,
     DEFAULT_RAM,
+    DEFAULT_VERSION_KEY,
     LAUNCHER_UPDATE_URL,
     MANIFEST_URL,
     MC_VERSION,
+    MODPACK_INFO_URL,
     RAM_OPTIONS,
     STATUS_URL,
     STYLESHEET,
+    VERSIONS,
 )
 from launcher import find_java, install_neoforge, ensure_profile, open_minecraft_launcher
-from updater import apply_update, fetch_manifest
+from updater import apply_update, fetch_manifest, SyncResult
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +92,7 @@ def load_settings() -> dict[str, Any]:
         "session_token": "",
         "account_name": "",
         "last_update_prompt": "",
+        "selected_version": "",
     }
     try:
         if SETTINGS_FILE.is_file():
@@ -232,11 +238,13 @@ class UpdateWorker(QThread):
 
     progress = Signal(float, str)       # (fraction 0-1, status_text)
     finished = Signal(bool, str)        # (success, summary_message)
+    sync_result = Signal(object)        # emits SyncResult when sync completes
     neoforge_status = Signal(str)       # NeoForge install status messages
 
-    def __init__(self, settings: dict[str, Any], parent=None):
+    def __init__(self, settings: dict[str, Any], manifest_url: str = "", parent=None):
         super().__init__(parent)
         self.settings = settings
+        self.manifest_url = manifest_url or MANIFEST_URL
 
     def run(self):
         loop = asyncio.new_event_loop()
@@ -252,16 +260,21 @@ class UpdateWorker(QThread):
         game_dir.mkdir(parents=True, exist_ok=True)
 
         self.progress.emit(0.0, "Fetching manifest...")
-        manifest = await fetch_manifest(MANIFEST_URL)
+        manifest = await fetch_manifest(self.manifest_url)
 
         self.progress.emit(0.05, "Checking for updates...")
         result = await apply_update(manifest, game_dir, self._progress_cb)
 
+        # Emit detailed sync result for log tab
+        self.sync_result.emit(result)
+
         summary = (
-            f"Done: {result['downloaded']} downloaded, "
-            f"{result['deleted']} removed, "
-            f"{result['unchanged']} up to date."
+            f"Done: {len(result.downloaded)} downloaded, "
+            f"{len(result.deleted)} removed, "
+            f"{len(result.unchanged)} up to date."
         )
+        if result.errors:
+            summary += f" ({len(result.errors)} errors)"
 
         # Install NeoForge into the official MC launcher directory so the
         # launcher can find the version JARs and libraries.  The gameDir
@@ -387,6 +400,24 @@ class ClaimWorker(QThread):
 
 
 # ---------------------------------------------------------------------------
+# Modpack info worker (fetches dynamic pill data from API)
+# ---------------------------------------------------------------------------
+
+
+class ModpackInfoWorker(QThread):
+    info_fetched = Signal(dict)  # emits the parsed JSON payload
+
+    def run(self):
+        try:
+            with httpx.Client(timeout=8.0) as client:
+                resp = client.get(MODPACK_INFO_URL)
+                resp.raise_for_status()
+                self.info_fetched.emit(resp.json())
+        except Exception:
+            self.info_fetched.emit({})
+
+
+# ---------------------------------------------------------------------------
 # Crash report worker
 # ---------------------------------------------------------------------------
 
@@ -404,6 +435,43 @@ class CrashReportWorker(QThread):
         new_reports = scan_minecraft_crash_reports(self.game_dir)
         sent_ok = flush_crash_queue(self.session_token, self.device_id)
         self.finished.emit(new_reports, sent_ok)
+
+
+# ---------------------------------------------------------------------------
+# Crash watcher thread (monitors for new crash reports while MC is running)
+# ---------------------------------------------------------------------------
+
+
+class CrashWatcherThread(QThread):
+    """Watches the crash-reports directory for new files while Minecraft runs."""
+
+    crash_detected = Signal(str)  # emits crash report path
+
+    def __init__(self, game_dir: Path, parent=None):
+        super().__init__(parent)
+        self.game_dir = game_dir
+        self.running = True
+        self.known_crashes: set[str] = set()
+
+    def run(self):
+        crash_dir = self.game_dir / "crash-reports"
+        # Snapshot existing crashes on start so we only detect NEW ones
+        if crash_dir.exists():
+            self.known_crashes = set(f.name for f in crash_dir.glob("*.txt"))
+
+        while self.running:
+            self.msleep(5000)  # Check every 5 seconds
+            if not crash_dir.exists():
+                continue
+            current = set(f.name for f in crash_dir.glob("*.txt"))
+            new_crashes = current - self.known_crashes
+            if new_crashes:
+                newest = sorted(new_crashes)[-1]
+                self.crash_detected.emit(str(crash_dir / newest))
+                self.known_crashes = current
+
+    def stop(self):
+        self.running = False
 
 
 # ---------------------------------------------------------------------------
@@ -613,18 +681,20 @@ class HomePage(QWidget):
 
         center_layout.addSpacing(24)
 
-        # Info pills
+        # Info pills (dynamic — updated by API fetch, with hardcoded defaults)
         pills_widget = QWidget()
         pills_layout = QHBoxLayout(pills_widget)
         pills_layout.setAlignment(Qt.AlignCenter)
         pills_layout.setSpacing(12)
 
+        # Default pill data — overridden by API response
         pill_data = [
-            ("170+ Mods", "pillAccent", "pillAccentLabel"),
+            ("Loading...", "pillAccent", "pillAccentLabel"),
             (f"NeoForge {MC_VERSION}", "pillDefault", "pillDefaultLabel"),
-            ("AI Dungeon Master", "pillNether", "pillNetherLabel"),
+            ("Loading...", "pillNether", "pillNetherLabel"),
         ]
 
+        self.pill_labels: list[QLabel] = []
         for text, frame_id, label_id in pill_data:
             pill = QFrame()
             pill.setObjectName(frame_id)
@@ -634,10 +704,38 @@ class HomePage(QWidget):
             lbl.setObjectName(label_id)
             pill_inner.addWidget(lbl)
             pills_layout.addWidget(pill)
+            self.pill_labels.append(lbl)
 
         center_layout.addWidget(pills_widget)
 
-        center_layout.addSpacing(32)
+        center_layout.addSpacing(20)
+
+        # Version picker
+        version_row = QWidget()
+        version_row_layout = QHBoxLayout(version_row)
+        version_row_layout.setAlignment(Qt.AlignCenter)
+        version_row_layout.setContentsMargins(0, 0, 0, 0)
+
+        version_col = QVBoxLayout()
+        version_col.setAlignment(Qt.AlignCenter)
+        version_col.setSpacing(4)
+
+        self.version_combo = QComboBox()
+        self.version_combo.addItems(list(VERSIONS.keys()))
+        self.version_combo.setFixedWidth(240)
+        self.version_combo.setFixedHeight(36)
+        self.version_combo.setCursor(Qt.PointingHandCursor)
+        version_col.addWidget(self.version_combo, alignment=Qt.AlignCenter)
+
+        self.server_ip_label = QLabel("")
+        self.server_ip_label.setStyleSheet("color: #525252; font-size: 11px;")
+        self.server_ip_label.setAlignment(Qt.AlignCenter)
+        version_col.addWidget(self.server_ip_label, alignment=Qt.AlignCenter)
+
+        version_row_layout.addLayout(version_col)
+        center_layout.addWidget(version_row)
+
+        center_layout.addSpacing(20)
 
         # Play button
         play_row = QWidget()
@@ -725,6 +823,13 @@ class HomePage(QWidget):
 
         layout.addWidget(bottom)
 
+    def update_pills(self, mod_count: str, engine: str, feature: str):
+        """Update the info pill labels with dynamic data."""
+        if len(self.pill_labels) >= 3:
+            self.pill_labels[0].setText(mod_count)
+            self.pill_labels[1].setText(engine)
+            self.pill_labels[2].setText(feature)
+
 
 # ---------------------------------------------------------------------------
 # About page
@@ -753,7 +858,7 @@ class AboutPage(QWidget):
             ("Project", "The Zack Pack (TZP)"),
             ("Version", f"v{APP_VERSION}"),
             ("Engine", f"NeoForge {MC_VERSION}"),
-            ("Mods", "170+ curated mods"),
+            ("Mods", "195+ curated mods"),
             ("AI", "MadGod AI Dungeon Master"),
             ("Owner", "NightMoon_ (Zack Grogan)"),
         ]
@@ -1168,7 +1273,11 @@ class MainWindow(QMainWindow):
         self._last_progress_message = ""
         self._last_neoforge_message = ""
 
+        self._really_quit = False
+        self._crash_watcher: CrashWatcherThread | None = None
+
         self._build_ui()
+        self._setup_tray()
 
         # Timers
         self._status_timer = QTimer(self)
@@ -1187,6 +1296,7 @@ class MainWindow(QMainWindow):
 
         # Kick off background tasks
         QTimer.singleShot(200, self._poll_server_status)
+        QTimer.singleShot(500, self._fetch_modpack_info)
         QTimer.singleShot(800, self._check_launcher_update)
         QTimer.singleShot(1200, self._scan_and_send_crash_reports)
         self._set_sync_prompt()
@@ -1229,6 +1339,63 @@ class MainWindow(QMainWindow):
         # Default to home
         self.stack.setCurrentWidget(self.home_page)
         self.sidebar.set_active_nav("home")
+
+        # Initialize version picker from saved settings
+        saved_version = self.settings.get("selected_version", "")
+        version_keys = list(VERSIONS.keys())
+        if saved_version in version_keys:
+            self.home_page.version_combo.setCurrentText(saved_version)
+        else:
+            self.home_page.version_combo.setCurrentText(DEFAULT_VERSION_KEY)
+        self._update_server_ip_label()
+        self.home_page.version_combo.currentTextChanged.connect(self._on_version_changed)
+
+    # ------------------------------------------------------------------
+    # System tray
+    # ------------------------------------------------------------------
+
+    def _setup_tray(self):
+        """Create system tray icon with context menu."""
+        self._tray = QSystemTrayIcon(self)
+        # Use the application icon if available, otherwise a default
+        icon = self.windowIcon()
+        if icon.isNull():
+            icon = QIcon.fromTheme("applications-games")
+        self._tray.setIcon(icon)
+        self._tray.setToolTip(APP_NAME)
+
+        tray_menu = QMenu()
+        show_action = tray_menu.addAction("Show TZP")
+        show_action.triggered.connect(self._restore_from_tray)
+        tray_menu.addSeparator()
+        quit_action = tray_menu.addAction("Quit")
+        quit_action.triggered.connect(self._quit_app)
+
+        self._tray.setContextMenu(tray_menu)
+        self._tray.activated.connect(self._tray_activated)
+        self._tray.show()
+
+    def _tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self._restore_from_tray()
+
+    def _restore_from_tray(self):
+        self.showNormal()
+        self.activateWindow()
+        self.raise_()
+
+    def _minimize_to_tray(self):
+        self.hide()
+        self._tray.showMessage(
+            APP_NAME,
+            "TZP Launcher is still running in the tray.",
+            QSystemTrayIcon.MessageIcon.Information,
+            2000,
+        )
+
+    def _quit_app(self):
+        self._really_quit = True
+        self.close()
 
     # ------------------------------------------------------------------
     # Navigation
@@ -1296,8 +1463,60 @@ class MainWindow(QMainWindow):
         self._pulse_on = not self._pulse_on
 
     # ------------------------------------------------------------------
+    # Modpack info (dynamic pills)
+    # ------------------------------------------------------------------
+
+    def _fetch_modpack_info(self):
+        self._log("Fetching modpack info from API.")
+        self._modpack_info_worker = ModpackInfoWorker(self)
+        self._modpack_info_worker.info_fetched.connect(self._on_modpack_info)
+        self._modpack_info_worker.start()
+
+    def _on_modpack_info(self, data: dict):
+        if not data:
+            # API failed — fall back to hardcoded defaults
+            self._log("Modpack info API unavailable, using defaults.")
+            self.home_page.update_pills(
+                "195+ Mods",
+                f"NeoForge {MC_VERSION}",
+                "AI Dungeon Master",
+            )
+            return
+
+        mod_count = data.get("mod_count", "195+")
+        engine = data.get("engine", f"NeoForge {MC_VERSION}")
+        feature = data.get("feature", "AI Dungeon Master")
+
+        self.home_page.update_pills(
+            f"{mod_count} Mods" if isinstance(mod_count, int) else str(mod_count),
+            str(engine),
+            str(feature),
+        )
+        self._log(f"Modpack info loaded: {mod_count} mods, {engine}, {feature}")
+
+    # ------------------------------------------------------------------
     # Update flow
     # ------------------------------------------------------------------
+
+    def _on_version_changed(self, version_key: str):
+        """Handle version picker change — save setting and reset sync state."""
+        self.settings["selected_version"] = version_key
+        save_settings(self.settings)
+        self._update_server_ip_label()
+        self._set_sync_prompt()
+        self._log(f"Switched to {version_key}.")
+
+    def _update_server_ip_label(self):
+        """Update the server IP label below the version picker."""
+        version_key = self.home_page.version_combo.currentText()
+        version_info = VERSIONS.get(version_key, VERSIONS[DEFAULT_VERSION_KEY])
+        ip = version_info.get("server_ip", "")
+        port = version_info.get("server_port", 25565)
+        if ip:
+            label = f"Server: {ip}" + (f":{port}" if port != 25565 else "")
+            self.home_page.server_ip_label.setText(label)
+        else:
+            self.home_page.server_ip_label.setText("Server: TBD")
 
     def _set_sync_prompt(self):
         self._pack_ready = False
@@ -1312,13 +1531,18 @@ class MainWindow(QMainWindow):
     def _start_update(self):
         if self._update_running:
             return
-        self._log("Starting pack sync.")
+        # Resolve manifest URL from selected version
+        version_key = self.home_page.version_combo.currentText()
+        version_info = VERSIONS.get(version_key, VERSIONS[DEFAULT_VERSION_KEY])
+        manifest_url = version_info["manifest"]
+        self._log(f"Starting pack sync for {version_key}.")
         self._update_running = True
         self.home_page.play_btn.setEnabled(False)
         self.home_page.play_btn.setText("UPDATING...")
 
-        self._update_worker = UpdateWorker(self.settings, self)
+        self._update_worker = UpdateWorker(self.settings, manifest_url=manifest_url, parent=self)
         self._update_worker.progress.connect(self._update_progress)
+        self._update_worker.sync_result.connect(self._on_sync_result)
         self._update_worker.neoforge_status.connect(self._neoforge_status)
         self._update_worker.finished.connect(self._update_finished)
         self._update_worker.start()
@@ -1352,6 +1576,23 @@ class MainWindow(QMainWindow):
         if msg != self._last_neoforge_message:
             self._last_neoforge_message = msg
             self._log(f"NeoForge: {msg}")
+
+    def _on_sync_result(self, result: SyncResult):
+        """Log detailed sync results to the Log tab."""
+        for path in result.downloaded:
+            self._log(f"  ADDED    {path}")
+        for path in result.deleted:
+            self._log(f"  REMOVED  {path}")
+        for path in result.unchanged:
+            self._log(f"  OK       {path}")
+        for err in result.errors:
+            self._log(f"  ERROR    {err}")
+        self._log(
+            f"Sync complete: {len(result.downloaded)} added, "
+            f"{len(result.deleted)} removed, "
+            f"{len(result.unchanged)} unchanged, "
+            f"{len(result.errors)} errors"
+        )
 
     def _update_finished(self, success: bool, message: str):
         self._update_running = False
@@ -1439,6 +1680,49 @@ class MainWindow(QMainWindow):
             )
 
     # ------------------------------------------------------------------
+    # Crash watcher (live detection while MC is running)
+    # ------------------------------------------------------------------
+
+    def _start_crash_watcher(self, game_dir: Path):
+        """Start watching for new crash reports."""
+        if self._crash_watcher is not None and self._crash_watcher.isRunning():
+            return
+        self._crash_watcher = CrashWatcherThread(game_dir, self)
+        self._crash_watcher.crash_detected.connect(self._on_crash_detected)
+        self._crash_watcher.start()
+        self._log("Crash watcher started.")
+
+    def _on_crash_detected(self, crash_path: str):
+        """Handle a newly detected crash report."""
+        self._log(f"Crash detected: {crash_path}")
+
+        # Restore from tray so the user sees the dialog
+        self._restore_from_tray()
+
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Minecraft Crashed")
+        dialog.setIcon(QMessageBox.Warning)
+        dialog.setText("Minecraft crashed!")
+        dialog.setInformativeText(
+            f"A new crash report was found:\n{Path(crash_path).name}\n\n"
+            "Would you like to send the crash report to the TZP team?"
+        )
+        dialog.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        dialog.setDefaultButton(QMessageBox.Yes)
+
+        if dialog.exec() == QMessageBox.Yes:
+            self._log("Uploading crash report...")
+            game_dir = Path(self.settings.get("game_dir", str(DEFAULT_GAME_DIR)))
+            session_token = self.settings.get("session_token", "") or None
+            self._crash_upload_worker = CrashReportWorker(
+                game_dir, session_token, self._device_id, self
+            )
+            self._crash_upload_worker.finished.connect(self._crash_report_finished)
+            self._crash_upload_worker.start()
+        else:
+            self._log("User declined to send crash report.")
+
+    # ------------------------------------------------------------------
     # Play
     # ------------------------------------------------------------------
 
@@ -1478,6 +1762,12 @@ class MainWindow(QMainWindow):
         if open_minecraft_launcher():
             self._log("Launched Minecraft launcher — select the 'TZP' profile and play.")
             self.home_page.progress_label.setText("Minecraft launcher opened — select TZP profile.")
+
+            # Start crash watcher
+            self._start_crash_watcher(game_dir)
+
+            # Minimize to tray after launch
+            QTimer.singleShot(1500, self._minimize_to_tray)
         else:
             # Fallback: open the game folder
             self._log("Minecraft launcher not found. Opening game folder.")
@@ -1494,17 +1784,35 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def closeEvent(self, event):
+        # Minimize to tray unless user chose Quit from tray menu
+        if not self._really_quit and QSystemTrayIcon.isSystemTrayAvailable():
+            event.ignore()
+            self._minimize_to_tray()
+            return
+
+        # Stop crash watcher if running
+        if self._crash_watcher is not None and self._crash_watcher.isRunning():
+            self._crash_watcher.stop()
+            self._crash_watcher.wait(3000)
+
         for name in (
             "_status_worker",
             "_update_worker",
             "_update_check_worker",
             "_crash_worker",
+            "_crash_upload_worker",
             "_claim_worker",
+            "_modpack_info_worker",
         ):
             worker = getattr(self, name, None)
             if isinstance(worker, QThread) and worker.isRunning():
                 worker.requestInterruption()
                 worker.wait(2000)
+
+        # Hide tray icon
+        if hasattr(self, "_tray"):
+            self._tray.hide()
+
         super().closeEvent(event)
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import asyncio
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -19,6 +20,15 @@ from config import MANIFEST_URL
 ManifestFile = dict[str, Any]   # {"path": str, "url": str, "sha256": str, "size": int}
 Manifest = dict[str, Any]       # {"version": str, "files": list[ManifestFile]}
 ProgressCallback = Callable[[float, str], None]  # (fraction 0-1, status_text)
+
+
+@dataclass
+class SyncResult:
+    """Detailed result of a sync operation."""
+    downloaded: list[str] = field(default_factory=list)
+    deleted: list[str] = field(default_factory=list)
+    unchanged: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -142,29 +152,44 @@ async def apply_update(
     manifest: Manifest,
     game_dir: Path,
     progress_callback: ProgressCallback | None = None,
-) -> dict[str, int]:
+) -> SyncResult:
     """Run the full update cycle: scan, diff, download, delete.
 
-    Returns a summary dict with counts: downloaded, deleted, unchanged.
+    Returns a SyncResult with lists of affected file paths.
     """
+    result = SyncResult()
+
     if progress_callback:
         progress_callback(0.0, "Scanning local files...")
 
     local_files = await asyncio.to_thread(scan_local_files, game_dir)
     to_download, to_delete, unchanged = compute_diff(manifest, local_files)
 
+    result.unchanged = list(unchanged)
+
     total_steps = len(to_download) + len(to_delete)
     completed = 0
 
+    # Emit summary before starting work
+    if progress_callback:
+        progress_callback(
+            0.0,
+            f"Sync: {len(to_download)} to download, {len(to_delete)} to remove, {len(unchanged)} unchanged",
+        )
+
     # Download new / updated files
-    for entry in to_download:
+    for i, entry in enumerate(to_download, 1):
         dest = game_dir / entry["path"]
-        file_name = Path(entry["path"]).name
+        rel_path = entry["path"]
         if progress_callback:
             frac = completed / max(total_steps, 1)
-            progress_callback(frac, f"Downloading {file_name}...")
+            progress_callback(frac, f"Downloading {rel_path} ({i}/{len(to_download)})")
 
-        await download_file(entry["url"], dest)
+        try:
+            await download_file(entry["url"], dest)
+            result.downloaded.append(rel_path)
+        except Exception as exc:
+            result.errors.append(f"{rel_path}: {exc}")
         completed += 1
 
     # Remove files not in manifest
@@ -172,18 +197,15 @@ async def apply_update(
         full_path = game_dir / rel_path
         if progress_callback:
             frac = completed / max(total_steps, 1)
-            progress_callback(frac, f"Removing {Path(rel_path).name}...")
+            progress_callback(frac, f"Removing {rel_path}")
         try:
             full_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+            result.deleted.append(rel_path)
+        except OSError as exc:
+            result.errors.append(f"{rel_path}: {exc}")
         completed += 1
 
     if progress_callback:
         progress_callback(1.0, "Up to date!")
 
-    return {
-        "downloaded": len(to_download),
-        "deleted": len(to_delete),
-        "unchanged": len(unchanged),
-    }
+    return result

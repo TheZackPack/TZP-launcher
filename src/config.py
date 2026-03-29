@@ -34,10 +34,33 @@ CRASH_REPORT_URL: str = os.getenv(
     "TZP_CRASH_REPORT_URL",
     f"{ACCOUNT_API_BASE}/crash",
 )
+MODPACK_INFO_URL: str = os.getenv(
+    "TZP_MODPACK_INFO_URL",
+    "https://tzp-production.up.railway.app/api/modpack/info",
+)
+
+# Version picker — users can switch between stable and beta modpacks
+# Each version maps to manifest URL + server connection info
+VERSIONS: dict[str, dict] = {
+    "v1.1.9 (Stable)": {
+        "manifest": MANIFEST_URL,
+        "server_ip": "15.204.117.31",
+        "server_port": 25565,
+    },
+    "v2.0.0-alpha (Beta)": {
+        "manifest": os.getenv(
+            "TZP_MANIFEST_URL_ALPHA",
+            "https://raw.githubusercontent.com/TheZackPack/TZP-client/v2.0.0-alpha/manifest.json",
+        ),
+        "server_ip": os.getenv("TZP_ALPHA_SERVER_IP", ""),  # PebbleHost IP — set in env
+        "server_port": int(os.getenv("TZP_ALPHA_SERVER_PORT", "25565")),
+    },
+}
+DEFAULT_VERSION_KEY: str = "v1.1.9 (Stable)"
 
 # App info
 APP_NAME: str = "TZP Launcher"
-APP_VERSION: str = "1.1.8"
+APP_VERSION: str = "1.2.0"
 
 # Minecraft / NeoForge versions
 MC_VERSION: str = "1.21.1"
