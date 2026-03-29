@@ -241,10 +241,11 @@ class UpdateWorker(QThread):
     sync_result = Signal(object)        # emits SyncResult when sync completes
     neoforge_status = Signal(str)       # NeoForge install status messages
 
-    def __init__(self, settings: dict[str, Any], manifest_url: str = "", parent=None):
+    def __init__(self, settings: dict[str, Any], manifest_url: str = "", instance_dir: str = "", parent=None):
         super().__init__(parent)
         self.settings = settings
         self.manifest_url = manifest_url or MANIFEST_URL
+        self.instance_dir = instance_dir
 
     def run(self):
         loop = asyncio.new_event_loop()
@@ -256,7 +257,12 @@ class UpdateWorker(QThread):
             loop.close()
 
     async def _async_update(self):
-        game_dir = Path(self.settings["game_dir"])
+        base_dir = Path(self.settings["game_dir"])
+        # Each version gets its own instance directory so switching doesn't wipe mods
+        if self.instance_dir:
+            game_dir = base_dir / "instances" / self.instance_dir
+        else:
+            game_dir = base_dir
         game_dir.mkdir(parents=True, exist_ok=True)
 
         self.progress.emit(0.0, "Fetching manifest...")
@@ -1531,16 +1537,17 @@ class MainWindow(QMainWindow):
     def _start_update(self):
         if self._update_running:
             return
-        # Resolve manifest URL from selected version
+        # Resolve manifest URL + instance dir from selected version
         version_key = self.home_page.version_combo.currentText()
         version_info = VERSIONS.get(version_key, VERSIONS[DEFAULT_VERSION_KEY])
         manifest_url = version_info["manifest"]
-        self._log(f"Starting pack sync for {version_key}.")
+        instance_dir = version_info.get("instance_dir", "")
+        self._log(f"Starting pack sync for {version_key} (instance: {instance_dir or 'default'}).")
         self._update_running = True
         self.home_page.play_btn.setEnabled(False)
         self.home_page.play_btn.setText("UPDATING...")
 
-        self._update_worker = UpdateWorker(self.settings, manifest_url=manifest_url, parent=self)
+        self._update_worker = UpdateWorker(self.settings, manifest_url=manifest_url, instance_dir=instance_dir, parent=self)
         self._update_worker.progress.connect(self._update_progress)
         self._update_worker.sync_result.connect(self._on_sync_result)
         self._update_worker.neoforge_status.connect(self._neoforge_status)

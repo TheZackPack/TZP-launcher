@@ -40,20 +40,23 @@ MODPACK_INFO_URL: str = os.getenv(
 )
 
 # Version picker — users can switch between stable and beta modpacks
-# Each version maps to manifest URL + server connection info
+# Each version has its own instance directory so switching doesn't wipe mods.
+# instance_dir is appended to the base game directory.
 VERSIONS: dict[str, dict] = {
     "v1.1.9 (Stable)": {
         "manifest": MANIFEST_URL,
         "server_ip": "15.204.117.31",
         "server_port": 25565,
+        "instance_dir": "stable",
     },
     "v2.0.0-alpha (Beta)": {
         "manifest": os.getenv(
             "TZP_MANIFEST_URL_ALPHA",
             "https://raw.githubusercontent.com/TheZackPack/TZP-client/v2.0.0-alpha/manifest.json",
         ),
-        "server_ip": os.getenv("TZP_ALPHA_SERVER_IP", ""),  # PebbleHost IP — set in env
-        "server_port": int(os.getenv("TZP_ALPHA_SERVER_PORT", "25565")),
+        "server_ip": os.getenv("TZP_ALPHA_SERVER_IP", "192.99.215.43"),
+        "server_port": int(os.getenv("TZP_ALPHA_SERVER_PORT", "25594")),
+        "instance_dir": "beta",
     },
 }
 DEFAULT_VERSION_KEY: str = "v1.1.9 (Stable)"
