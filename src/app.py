@@ -948,11 +948,42 @@ class LogPage(QWidget):
 # ---------------------------------------------------------------------------
 
 
+class LauncherDownloadWorker(QThread):
+    """Downloads a launcher update in the background."""
+    progress = Signal(int)  # percent 0-100
+    finished = Signal(bool, str)  # (success, file_path_or_error)
+
+    def __init__(self, url: str, dest: Path, parent=None):
+        super().__init__(parent)
+        self.url = url
+        self.dest = dest
+
+    def run(self):
+        try:
+            with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+                with client.stream("GET", self.url) as resp:
+                    resp.raise_for_status()
+                    total = int(resp.headers.get("content-length", 0))
+                    downloaded = 0
+                    self.dest.parent.mkdir(parents=True, exist_ok=True)
+                    with open(self.dest, "wb") as f:
+                        for chunk in resp.iter_bytes(chunk_size=65536):
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total > 0:
+                                self.progress.emit(int(downloaded / total * 100))
+            self.finished.emit(True, str(self.dest))
+        except Exception as exc:
+            self.finished.emit(False, str(exc))
+
+
 class UpdateDialog(QDialog):
     def __init__(self, version: str, url: str, summary: str, parent=None):
         super().__init__(parent)
+        self._url = url
+        self._version = version
         self.setWindowTitle("Launcher Update Available")
-        self.setFixedSize(520, 300)
+        self.setFixedSize(520, 340)
         self.setModal(True)
 
         layout = QVBoxLayout(self)
@@ -963,9 +994,7 @@ class UpdateDialog(QDialog):
         title.setObjectName("aboutTitle")
         layout.addWidget(title)
 
-        msg = QLabel(
-            f"Version {version} is available. Download the latest launcher now?"
-        )
+        msg = QLabel(f"Version {version} is ready to install.")
         msg.setWordWrap(True)
         msg.setObjectName("aboutValue")
         layout.addWidget(msg)
@@ -976,29 +1005,93 @@ class UpdateDialog(QDialog):
             summary_label.setObjectName("cardHint")
             layout.addWidget(summary_label)
 
+        # Progress bar (hidden until download starts)
+        self._progress = QProgressBar()
+        self._progress.setVisible(False)
+        self._progress.setTextVisible(True)
+        self._progress.setFormat("Downloading... %p%")
+        layout.addWidget(self._progress)
+
+        self._status_label = QLabel("")
+        self._status_label.setObjectName("cardHint")
+        self._status_label.setVisible(False)
+        layout.addWidget(self._status_label)
+
         layout.addStretch()
 
         btn_row = QWidget()
         btn_layout = QHBoxLayout(btn_row)
         btn_layout.addStretch()
 
-        later_btn = QPushButton("Later")
-        later_btn.setObjectName("cancelButton")
-        later_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(later_btn)
+        self._later_btn = QPushButton("Later")
+        self._later_btn.setObjectName("cancelButton")
+        self._later_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(self._later_btn)
 
         btn_layout.addSpacing(10)
 
-        dl_btn = QPushButton("Download")
-        dl_btn.setObjectName("saveButton")
-        dl_btn.clicked.connect(lambda: self._open_url(url))
-        btn_layout.addWidget(dl_btn)
+        self._update_btn = QPushButton("Update Now")
+        self._update_btn.setObjectName("saveButton")
+        self._update_btn.clicked.connect(self._start_download)
+        btn_layout.addWidget(self._update_btn)
 
         layout.addWidget(btn_row)
 
-    def _open_url(self, url: str) -> None:
-        QDesktopServices.openUrl(QUrl(url))
-        self.accept()
+    def _start_download(self):
+        self._update_btn.setEnabled(False)
+        self._update_btn.setText("Downloading...")
+        self._later_btn.setEnabled(False)
+        self._progress.setVisible(True)
+        self._progress.setValue(0)
+
+        # Determine download destination
+        if runtime_platform.system() == "Windows":
+            dest = APP_SUPPORT_DIR / f"TZP-Launcher-{self._version}-Setup.exe"
+        else:
+            dest = APP_SUPPORT_DIR / f"TZP-Launcher-{self._version}.zip"
+
+        self._download_dest = dest
+        self._worker = LauncherDownloadWorker(self._url, dest, self)
+        self._worker.progress.connect(self._on_progress)
+        self._worker.finished.connect(self._on_download_done)
+        self._worker.start()
+
+    def _on_progress(self, pct: int):
+        self._progress.setValue(pct)
+
+    def _on_download_done(self, success: bool, result: str):
+        if success:
+            self._progress.setValue(100)
+            self._progress.setFormat("Download complete!")
+            self._status_label.setVisible(True)
+
+            if runtime_platform.system() == "Windows":
+                # Launch the installer and close the launcher
+                self._status_label.setText("Launching installer...")
+                import subprocess
+                subprocess.Popen([result], shell=True)
+                QApplication.quit()
+            else:
+                # For macOS/Linux — open the containing folder
+                self._status_label.setText(f"Saved to: {result}")
+                self._update_btn.setText("Open Folder")
+                self._update_btn.setEnabled(True)
+                self._update_btn.clicked.disconnect()
+                self._update_btn.clicked.connect(
+                    lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(result).parent)))
+                )
+                self._later_btn.setText("Close")
+                self._later_btn.setEnabled(True)
+        else:
+            self._progress.setFormat("Download failed")
+            self._status_label.setVisible(True)
+            self._status_label.setText(f"Error: {result}")
+            self._status_label.setStyleSheet("color: #ef4444; font-size: 11px;")
+            self._update_btn.setText("Try in Browser")
+            self._update_btn.setEnabled(True)
+            self._update_btn.clicked.disconnect()
+            self._update_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self._url)))
+            self._later_btn.setEnabled(True)
 
 
 # ---------------------------------------------------------------------------
