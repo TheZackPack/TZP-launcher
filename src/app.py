@@ -1104,7 +1104,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.settings = settings
         self.setWindowTitle("Settings")
-        self.setFixedSize(600, 580)
+        self.setFixedSize(600, 660)
         self.setModal(True)
         self.setAutoFillBackground(True)
 
@@ -1129,44 +1129,24 @@ class SettingsDialog(QDialog):
         account_card = QFrame()
         account_card.setObjectName("settingsCard")
         account_card.setAutoFillBackground(True)
-        account_layout = QVBoxLayout(account_card)
+        account_layout = QHBoxLayout(account_card)
         account_layout.setContentsMargins(16, 14, 16, 14)
-        account_layout.setSpacing(6)
 
-        status_row = QHBoxLayout()
-        status_label = QLabel("Status")
+        status_label = QLabel("Account")
         status_label.setObjectName("cardLabel")
-        status_row.addWidget(status_label)
-        status_row.addStretch()
+        account_layout.addWidget(status_label)
+        account_layout.addStretch()
 
         account_name = settings.get("account_name", "")
         session_token = settings.get("session_token", "")
-        status_text = f"Linked ({account_name})" if session_token else "Not linked"
+        status_text = f"Linked ({account_name})" if session_token else "Not linked — run /link in-game"
         self.account_status = QLabel(status_text)
         self.account_status.setObjectName("cardHint")
-        status_row.addWidget(self.account_status)
-        account_layout.addLayout(status_row)
-
-        claim_row = QHBoxLayout()
-        claim_row.setSpacing(8)
-        self.claim_input = QLineEdit()
-        self.claim_input.setPlaceholderText("Enter claim code")
-        claim_row.addWidget(self.claim_input)
-
-        self.claim_button = QPushButton("Link")
-        self.claim_button.setObjectName("browseButton")
-        self.claim_button.setCursor(Qt.PointingHandCursor)
-        self.claim_button.clicked.connect(self._claim_code)
-        claim_row.addWidget(self.claim_button)
-        account_layout.addLayout(claim_row)
-
-        self.claim_status = QLabel("")
-        self.claim_status.setObjectName("cardHint")
-        account_layout.addWidget(self.claim_status)
+        account_layout.addWidget(self.account_status)
 
         layout.addWidget(account_card)
 
-        layout.addSpacing(20)
+        layout.addSpacing(16)
 
         # GAME section header
         game_header = QLabel("GAME")
@@ -1301,6 +1281,34 @@ class SettingsDialog(QDialog):
         java_layout.addLayout(java_row)
         layout.addWidget(java_card)
 
+        layout.addSpacing(16)
+
+        # LAUNCHER section
+        launcher_header = QLabel("LAUNCHER")
+        launcher_header.setObjectName("sectionLabel")
+        layout.addWidget(launcher_header)
+
+        layout.addSpacing(8)
+
+        update_card = QFrame()
+        update_card.setObjectName("settingsCard")
+        update_card.setAutoFillBackground(True)
+        update_card_layout = QHBoxLayout(update_card)
+        update_card_layout.setContentsMargins(16, 14, 16, 14)
+
+        version_label = QLabel(f"Version {APP_VERSION}")
+        version_label.setObjectName("cardLabel")
+        update_card_layout.addWidget(version_label)
+        update_card_layout.addStretch()
+
+        self.update_check_btn = QPushButton("Check for Updates")
+        self.update_check_btn.setObjectName("browseButton")
+        self.update_check_btn.setCursor(Qt.PointingHandCursor)
+        self.update_check_btn.clicked.connect(self._check_updates)
+        update_card_layout.addWidget(self.update_check_btn)
+
+        layout.addWidget(update_card)
+
         layout.addStretch()
 
         # Action buttons
@@ -1324,6 +1332,28 @@ class SettingsDialog(QDialog):
         btn_layout.addWidget(save_btn)
 
         layout.addWidget(btn_row)
+
+    def _check_updates(self):
+        self.update_check_btn.setEnabled(False)
+        self.update_check_btn.setText("Checking...")
+        self._update_worker = UpdateCheckWorker(self)
+        self._update_worker.update_available.connect(self._on_update_found)
+        self._update_worker.finished.connect(self._on_update_check_done)
+        self._update_worker.start()
+
+    def _on_update_found(self, version: str, url: str, summary: str):
+        self.update_check_btn.setText(f"v{version} available!")
+        self.update_check_btn.setStyleSheet("color: #2ECC71; font-weight: bold;")
+        # Close settings and show update dialog
+        self.accept()
+        if self.parent():
+            dialog = UpdateDialog(version, url, summary, self.parent())
+            dialog.exec()
+
+    def _on_update_check_done(self):
+        if self.update_check_btn.text() == "Checking...":
+            self.update_check_btn.setText("Up to date!")
+            self.update_check_btn.setEnabled(True)
 
     def _on_ram_changed(self, value: int):
         # Snap to even numbers

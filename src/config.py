@@ -63,7 +63,7 @@ DEFAULT_VERSION_KEY: str = "v1.1.9 (Stable)"
 
 # App info
 APP_NAME: str = "TZP Launcher"
-APP_VERSION: str = "1.2.4"
+APP_VERSION: str = "1.2.5"
 
 # Minecraft / NeoForge versions
 MC_VERSION: str = "1.21.1"
@@ -558,16 +558,18 @@ QPushButton:pressed {
 /* ---- Specific buttons ---- */
 #browseButton {
     background-color: #1e1e1e;
-    border: none;
+    border: 1px solid #333333;
     border-radius: 8px;
     color: #e5e5e5;
     padding: 8px 16px;
     font-size: 12px;
     min-width: 70px;
+    min-height: 20px;
 }
 
 #browseButton:hover {
     background-color: #3b82f6;
+    border-color: #3b82f6;
 }
 
 #cancelButton {
