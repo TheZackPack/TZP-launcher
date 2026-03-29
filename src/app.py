@@ -1749,7 +1749,15 @@ class MainWindow(QMainWindow):
             self._pack_ready = True
             self.home_page.progress_bar.setValue(1000)
             self.home_page.progress_pct_label.setText("")
-            game_dir = Path(self.settings["game_dir"])
+            # Use the instance-specific game directory (matches where UpdateWorker synced)
+            base_dir = Path(self.settings["game_dir"])
+            version_key = self.home_page.version_combo.currentText()
+            version_info = VERSIONS.get(version_key, VERSIONS[DEFAULT_VERSION_KEY])
+            instance_dir = version_info.get("instance_dir", "")
+            if instance_dir:
+                game_dir = base_dir / "instances" / instance_dir
+            else:
+                game_dir = base_dir
             java_path = self.settings.get("java_path", "") or None
             ram = self.settings.get("ram", DEFAULT_RAM)
             profile_ok = ensure_profile(game_dir, java_path, ram)
@@ -1898,7 +1906,12 @@ class MainWindow(QMainWindow):
             self._start_update()
             return
 
-        game_dir = Path(self.settings["game_dir"])
+        # Use instance-specific game directory
+        base_dir = Path(self.settings["game_dir"])
+        version_key = self.home_page.version_combo.currentText()
+        version_info = VERSIONS.get(version_key, VERSIONS[DEFAULT_VERSION_KEY])
+        instance_dir = version_info.get("instance_dir", "")
+        game_dir = base_dir / "instances" / instance_dir if instance_dir else base_dir
         java_path = self.settings.get("java_path", "") or None
 
         # Ensure profile is up to date with current settings
