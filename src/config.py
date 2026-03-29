@@ -63,7 +63,7 @@ DEFAULT_VERSION_KEY: str = "v1.1.9 (Stable)"
 
 # App info
 APP_NAME: str = "TZP Launcher"
-APP_VERSION: str = "1.2.0"
+APP_VERSION: str = "1.2.1"
 
 # Minecraft / NeoForge versions
 MC_VERSION: str = "1.21.1"
