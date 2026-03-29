@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QMessageBox,
     QSizePolicy,
+    QSlider,
     QSpacerItem,
     QStackedWidget,
     QSystemTrayIcon,
@@ -66,6 +67,8 @@ from config import (
     MANIFEST_URL,
     MC_VERSION,
     MODPACK_INFO_URL,
+    RAM_MAX_GB,
+    RAM_MIN_GB,
     RAM_OPTIONS,
     STATUS_URL,
     STYLESHEET,
@@ -785,9 +788,9 @@ class HomePage(QWidget):
         news_inner.addWidget(news_tag)
         news_inner.addSpacing(8)
 
-        news_text = QLabel("v1.1.8 \u2014 Modpack manager + new look")
-        news_text.setObjectName("newsText")
-        news_inner.addWidget(news_text)
+        self.news_text = QLabel("Loading latest update...")
+        self.news_text.setObjectName("newsText")
+        news_inner.addWidget(self.news_text)
 
         news_row_layout.addWidget(news_card)
         center_layout.addWidget(news_row)
@@ -1008,7 +1011,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.settings = settings
         self.setWindowTitle("Settings")
-        self.setFixedSize(540, 580)
+        self.setFixedSize(600, 580)
         self.setModal(True)
         self.setAutoFillBackground(True)
 
@@ -1079,24 +1082,51 @@ class SettingsDialog(QDialog):
 
         layout.addSpacing(8)
 
-        # RAM card
+        # RAM card with slider
         ram_card = QFrame()
         ram_card.setObjectName("settingsCard")
         ram_card.setAutoFillBackground(True)
-        ram_layout = QHBoxLayout(ram_card)
-        ram_layout.setContentsMargins(16, 14, 16, 14)
+        ram_card_layout = QVBoxLayout(ram_card)
+        ram_card_layout.setContentsMargins(16, 14, 16, 14)
+        ram_card_layout.setSpacing(10)
 
+        ram_header = QHBoxLayout()
         ram_label = QLabel("RAM Allocation")
         ram_label.setObjectName("cardLabel")
-        ram_layout.addWidget(ram_label)
-        ram_layout.addStretch()
+        ram_header.addWidget(ram_label)
+        ram_header.addStretch()
 
-        self.ram_combo = QComboBox()
-        self.ram_combo.addItems(RAM_OPTIONS)
         current_ram = settings.get("ram", DEFAULT_RAM)
-        idx = RAM_OPTIONS.index(current_ram) if current_ram in RAM_OPTIONS else 1
-        self.ram_combo.setCurrentIndex(idx)
-        ram_layout.addWidget(self.ram_combo)
+        current_gb = int(current_ram.replace("G", "")) if current_ram.endswith("G") else 6
+        current_gb = max(RAM_MIN_GB, min(RAM_MAX_GB, current_gb))
+
+        self.ram_value_label = QLabel(f"{current_gb}G")
+        self.ram_value_label.setObjectName("ramValue")
+        self.ram_value_label.setStyleSheet("color: #3b82f6; font-size: 16px; font-weight: bold; font-family: 'JetBrains Mono', monospace;")
+        ram_header.addWidget(self.ram_value_label)
+        ram_card_layout.addLayout(ram_header)
+
+        self.ram_slider = QSlider(Qt.Horizontal)
+        self.ram_slider.setMinimum(RAM_MIN_GB)
+        self.ram_slider.setMaximum(RAM_MAX_GB)
+        self.ram_slider.setSingleStep(2)
+        self.ram_slider.setPageStep(2)
+        self.ram_slider.setValue(current_gb)
+        self.ram_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.ram_slider.setTickInterval(2)
+        self.ram_slider.valueChanged.connect(self._on_ram_changed)
+        ram_card_layout.addWidget(self.ram_slider)
+
+        ram_range_row = QHBoxLayout()
+        ram_min_lbl = QLabel(f"{RAM_MIN_GB}G")
+        ram_min_lbl.setStyleSheet("color: #525252; font-size: 10px; font-family: monospace;")
+        ram_max_lbl = QLabel(f"{RAM_MAX_GB}G")
+        ram_max_lbl.setStyleSheet("color: #525252; font-size: 10px; font-family: monospace;")
+        ram_range_row.addWidget(ram_min_lbl)
+        ram_range_row.addStretch()
+        ram_max_lbl.setAlignment(Qt.AlignRight)
+        ram_range_row.addWidget(ram_max_lbl)
+        ram_card_layout.addLayout(ram_range_row)
 
         layout.addWidget(ram_card)
 
@@ -1119,7 +1149,8 @@ class SettingsDialog(QDialog):
 
         self.dir_entry = QLineEdit(settings.get("game_dir", str(DEFAULT_GAME_DIR)))
         self.dir_entry.setCursorPosition(0)
-        dir_row.addWidget(self.dir_entry)
+        self.dir_entry.setMinimumHeight(36)
+        dir_row.addWidget(self.dir_entry, 1)
 
         dir_browse = QPushButton("Browse")
         dir_browse.setObjectName("browseButton")
@@ -1165,7 +1196,8 @@ class SettingsDialog(QDialog):
         java_default = settings.get("java_path", "") or (java_detected or "")
         self.java_entry = QLineEdit(java_default)
         self.java_entry.setCursorPosition(0)
-        java_row.addWidget(self.java_entry)
+        self.java_entry.setMinimumHeight(36)
+        java_row.addWidget(self.java_entry, 1)
 
         java_browse = QPushButton("Browse")
         java_browse.setObjectName("browseButton")
@@ -1199,6 +1231,14 @@ class SettingsDialog(QDialog):
         btn_layout.addWidget(save_btn)
 
         layout.addWidget(btn_row)
+
+    def _on_ram_changed(self, value: int):
+        # Snap to even numbers
+        snapped = max(RAM_MIN_GB, min(RAM_MAX_GB, (value // 2) * 2))
+        if snapped != value:
+            self.ram_slider.setValue(snapped)
+            return
+        self.ram_value_label.setText(f"{snapped}G")
 
     def _browse_dir(self):
         path = QFileDialog.getExistingDirectory(self, "Select Game Directory", self.dir_entry.text())
@@ -1248,7 +1288,7 @@ class SettingsDialog(QDialog):
         save_settings(self.settings)
 
     def _save(self):
-        self.settings["ram"] = self.ram_combo.currentText()
+        self.settings["ram"] = f"{self.ram_slider.value()}G"
         self.settings["game_dir"] = self.dir_entry.text()
         self.settings["java_path"] = self.java_entry.text()
         save_settings(self.settings)
@@ -1487,17 +1527,24 @@ class MainWindow(QMainWindow):
                 f"NeoForge {MC_VERSION}",
                 "AI Dungeon Master",
             )
+            self.home_page.news_text.setText("Could not load latest update info.")
             return
 
         mod_count = data.get("mod_count", "195+")
         engine = data.get("engine", f"NeoForge {MC_VERSION}")
         feature = data.get("feature", "AI Dungeon Master")
+        motd = data.get("motd", "")
 
         self.home_page.update_pills(
             f"{mod_count} Mods" if isinstance(mod_count, int) else str(mod_count),
             str(engine),
             str(feature),
         )
+
+        # Update news card from API motd
+        if motd:
+            self.home_page.news_text.setText(str(motd))
+
         self._log(f"Modpack info loaded: {mod_count} mods, {engine}, {feature}")
 
     # ------------------------------------------------------------------

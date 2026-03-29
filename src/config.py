@@ -63,15 +63,17 @@ DEFAULT_VERSION_KEY: str = "v1.1.9 (Stable)"
 
 # App info
 APP_NAME: str = "TZP Launcher"
-APP_VERSION: str = "1.2.1"
+APP_VERSION: str = "1.2.2"
 
 # Minecraft / NeoForge versions
 MC_VERSION: str = "1.21.1"
 NEOFORGE_VERSION: str = "21.1.220"
 
 # Default JVM memory allocation
-DEFAULT_RAM: str = "4G"
-RAM_OPTIONS: list[str] = ["2G", "4G", "6G", "8G"]
+DEFAULT_RAM: str = "6G"
+RAM_MIN_GB: int = 2
+RAM_MAX_GB: int = 16
+RAM_OPTIONS: list[str] = ["2G", "4G", "6G", "8G", "10G", "12G", "14G", "16G"]
 
 # Platform-specific storage directories
 def get_app_support_dir() -> Path:
@@ -453,6 +455,7 @@ QLineEdit {
     border: 1px solid #262626;
     border-radius: 6px;
     padding: 8px 12px;
+    min-height: 20px;
     color: #e5e5e5;
     font-size: 13px;
     selection-background-color: #2563eb;
@@ -465,6 +468,32 @@ QLineEdit:focus {
 
 QLineEdit:read-only {
     color: #a3a3a3;
+}
+
+/* ---- Slider ---- */
+QSlider::groove:horizontal {
+    background: #262626;
+    height: 6px;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #3b82f6;
+    width: 18px;
+    height: 18px;
+    margin: -6px 0;
+    border-radius: 9px;
+}
+QSlider::handle:horizontal:hover {
+    background: #60a5fa;
+}
+QSlider::sub-page:horizontal {
+    background: #3b82f6;
+    border-radius: 3px;
+}
+QSlider::tick-mark:horizontal {
+    background: #404040;
+    width: 1px;
+    height: 4px;
 }
 
 QDialog QLineEdit {
